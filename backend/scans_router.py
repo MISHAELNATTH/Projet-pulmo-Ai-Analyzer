@@ -27,6 +27,7 @@ async def get_scans(
         results.append({
             "id": scan.id,
             "patient_id": scan.patient_id,
+            "patient_name": scan.patient.patient_name if scan.patient else "Unknown",
             "patient_pseudonym": scan.patient.pseudonymized_id if scan.patient else "Unknown",
             "age_at_scan": scan.patient.age_at_scan if scan.patient else None,
             "biological_sex": scan.patient.biological_sex if scan.patient else None,
@@ -78,6 +79,7 @@ async def get_scan_metadata(
         
     return {
         "scan_id": scan.id,
+        "patient_name": scan.patient.patient_name if scan.patient else "Unknown",
         "patient_pseudonym": scan.patient.pseudonymized_id if scan.patient else "Unknown",
         "age_at_scan": scan.patient.age_at_scan if scan.patient else None,
         "biological_sex": scan.patient.biological_sex if scan.patient else None,

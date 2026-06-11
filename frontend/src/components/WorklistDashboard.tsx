@@ -66,6 +66,7 @@ const initialStudies: Study[] = [
 export const WorklistDashboard: React.FC = () => {
   const navigate = useNavigate();
   const [dbScans, setDbScans] = useState<any[]>([]);
+  const [pendingIngestion, setPendingIngestion] = useState<any | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState<'ALL' | 'STAT' | 'Routine'>('ALL');
   const [isAddingScan, setIsAddingScan] = useState(false);
@@ -113,9 +114,8 @@ export const WorklistDashboard: React.FC = () => {
       : { 'Content-Type': 'multipart/form-data' };
 
     try {
-      await axios.post('http://localhost:8000/api/scans/upload', formData, { headers });
-      alert('DICOM scan uploaded and pseudonymized successfully!');
-      fetchScans(); // Refresh list
+      const response = await axios.post('http://localhost:8000/api/scans/upload', formData, { headers });
+      setPendingIngestion(response.data);
     } catch (err: any) {
       console.error('Upload failed:', err);
       alert(`Upload failed: ${err.response?.data?.detail || err.message}`);
@@ -127,12 +127,23 @@ export const WorklistDashboard: React.FC = () => {
     }
   };
 
+  const handleConfirmIngestion = () => {
+    setPendingIngestion(null);
+    fetchScans(); // Reload scanned items dynamically
+  };
+
+  const handleCancelIngestion = () => {
+    // Dismiss confirmation modal
+    setPendingIngestion(null);
+    fetchScans();
+  };
+
   // Map database scans to Study format
   const mappedDbStudies: Study[] = dbScans.map((scan) => ({
     id: scan.id,
     scanId: scan.id,
     priority: 'Routine', // Default to Routine for new uploads
-    name: scan.patient_pseudonym,
+    name: scan.patient_name || scan.patient_pseudonym,
     mrn: `MRN-${scan.id.substring(0, 8).toUpperCase()}`,
     desc: 'CT CHEST W/O CONTRAST',
     status: scan.status === 'pending' ? 'Uploaded' : scan.status === 'processing' ? 'Processing' : 'Completed',
@@ -375,6 +386,63 @@ export const WorklistDashboard: React.FC = () => {
           </div>
         </main>
       </div>
+
+      {pendingIngestion && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+          <div className="bg-[#161B22] border-t-4 border-primary border-x border-b border-[#30363D] rounded-lg shadow-2xl p-6 w-full max-w-md flex flex-col gap-6 animate-fade-in text-on-surface">
+            
+            <header className="flex items-center gap-3">
+              <span className="material-symbols-outlined text-primary text-3xl">clinical_research</span>
+              <div>
+                <h3 className="text-title-md font-bold tracking-tight text-on-surface">DICOM Ingestion Verification</h3>
+                <p className="text-body-sm text-on-surface-variant">Verify patient metadata extracted from DICOM headers</p>
+              </div>
+            </header>
+
+            <div className="bg-surface-container-low p-4 rounded border border-[#30363D]/50 flex flex-col gap-3 font-mono-data text-xs">
+              <div className="flex justify-between border-b border-[#30363D]/30 pb-2">
+                <span className="text-on-surface-variant uppercase">Patient Name:</span>
+                <span className="text-primary font-bold">{pendingIngestion.patient_name || 'Unknown'}</span>
+              </div>
+              <div className="flex justify-between border-b border-[#30363D]/30 pb-2">
+                <span className="text-on-surface-variant uppercase">Patient ID / MRN:</span>
+                <span className="text-on-surface">{pendingIngestion.patient_id || 'Unknown'}</span>
+              </div>
+              <div className="flex justify-between border-b border-[#30363D]/30 pb-2">
+                <span className="text-on-surface-variant uppercase">Age / Gender:</span>
+                <span className="text-on-surface">{pendingIngestion.age} Y / {pendingIngestion.sex}</span>
+              </div>
+              <div className="flex justify-between border-b border-[#30363D]/30 pb-2">
+                <span className="text-on-surface-variant uppercase">Study Date:</span>
+                <span className="text-on-surface">{pendingIngestion.study_date || 'N/A'}</span>
+              </div>
+              <div className="flex justify-between border-b border-[#30363D]/30 pb-2">
+                <span className="text-on-surface-variant uppercase">Slice Count:</span>
+                <span className="text-primary font-bold">{pendingIngestion.slice_count} Slices</span>
+              </div>
+              <div className="flex flex-col gap-1 pt-1 bg-primary/5 p-2 rounded border border-primary/20 mt-1">
+                <span className="text-[10px] text-primary uppercase font-bold tracking-wider">GDPR Pseudonym ID (Saved to disk):</span>
+                <span className="text-on-surface-variant select-all text-[10.5px] truncate">{pendingIngestion.patient_pseudonym}</span>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <button
+                onClick={handleCancelIngestion}
+                className="flex-1 border border-[#30363D] hover:border-error/50 text-on-surface hover:text-error py-2.5 px-4 rounded transition-all cursor-pointer font-bold text-center bg-transparent"
+              >
+                CANCEL
+              </button>
+              <button
+                onClick={handleConfirmIngestion}
+                className="flex-1 bg-primary hover:bg-primary-fixed text-[#0B0E14] py-2.5 px-4 rounded transition-all cursor-pointer font-bold text-center shadow-lg shadow-primary/10"
+              >
+                PROCEED
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

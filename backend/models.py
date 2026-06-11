@@ -25,6 +25,7 @@ class Patient(Base):
     
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     pseudonymized_id = Column(String, unique=True, index=True, nullable=False)
+    patient_name = Column(String, nullable=True)
     age_at_scan = Column(Integer, nullable=True)
     biological_sex = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)

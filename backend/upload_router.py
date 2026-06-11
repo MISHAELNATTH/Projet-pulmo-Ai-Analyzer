@@ -77,6 +77,11 @@ async def upload_dicom_files(
         orig_patient_id = getattr(first_ds, "PatientID", "")
         orig_patient_name = str(getattr(first_ds, "PatientName", ""))
         
+        # Format name for standard rendering (e.g., DOE^JOHN -> DOE, JOHN)
+        clean_patient_name = orig_patient_name.replace("^", ", ").strip()
+        if clean_patient_name.endswith(","):
+            clean_patient_name = clean_patient_name[:-1].strip()
+        
         if orig_patient_id:
             patient_hash = hashlib.sha256(f"{orig_patient_id}_{orig_patient_name}".encode()).hexdigest()[:12]
             pseudonym_id = f"PATIENT_{patient_hash}"
@@ -88,12 +93,16 @@ async def upload_dicom_files(
         if not patient:
             patient = models.Patient(
                 pseudonymized_id=pseudonym_id,
+                patient_name=clean_patient_name if clean_patient_name else "Unknown Patient",
                 age_at_scan=age,
                 biological_sex=sex
             )
             db.add(patient)
             db.commit()
             db.refresh(patient)
+        elif not patient.patient_name and clean_patient_name:
+            patient.patient_name = clean_patient_name
+            db.commit()
             
         # 5. Create scan record
         permanent_scan_dir = os.path.join(STORAGE_DIR, scan_id)
@@ -129,6 +138,11 @@ async def upload_dicom_files(
             "message": "Scan uploaded and anonymized successfully",
             "scan_id": scan.id,
             "patient_pseudonym": patient.pseudonymized_id,
+            "patient_name": patient.patient_name,
+            "patient_id": orig_patient_id,
+            "age": age,
+            "sex": sex,
+            "study_date": study_date.isoformat() if study_date else None,
             "slice_count": len(temp_filepaths),
             "status": scan.status
         }
