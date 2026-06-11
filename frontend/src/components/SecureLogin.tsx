@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import axios from 'axios';
 
 export const SecureLogin: React.FC = () => {
   const navigate = useNavigate();
@@ -9,15 +10,30 @@ export const SecureLogin: React.FC = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [isAuthenticating, setIsAuthenticating] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsAuthenticating(true);
     
-    // Simulate high-fidelity secure PACS connection authentication
-    setTimeout(() => {
+    const params = new URLSearchParams();
+    params.append('username', institutionId);
+    params.append('password', password);
+
+    try {
+      const response = await axios.post('http://localhost:8000/api/auth/token', params, {
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+      });
+      
+      const { access_token, role, email } = response.data;
+      localStorage.setItem('access_token', access_token);
+      localStorage.setItem('role', role);
+      localStorage.setItem('email', email);
+      
       setIsAuthenticating(false);
       navigate('/dashboard');
-    }, 1500);
+    } catch (err: any) {
+      setIsAuthenticating(false);
+      alert(err.response?.data?.detail || 'Incorrect credentials or PACS authentication failed.');
+    }
   };
 
   return (
