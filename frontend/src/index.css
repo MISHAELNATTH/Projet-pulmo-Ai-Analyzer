@@ -1,0 +1,111 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background-color: #0b141c;
+}
+
+.material-symbols-outlined {
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+}
+.material-symbols-outlined.fill-icon {
+  font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+}
+
+/* Abstract ambient background to simulate medical imaging environment */
+.ambient-bg {
+  background: radial-gradient(circle at 50% -20%, rgba(71, 239, 224, 0.05) 0%, transparent 50%),
+              radial-gradient(circle at -10% 50%, rgba(45, 54, 62, 0.3) 0%, transparent 40%);
+}
+
+/* Subtle scanline effect for technical aesthetic */
+.scanlines {
+  background: linear-gradient(to bottom, rgba(255,255,255,0), rgba(255,255,255,0) 50%, rgba(0,0,0,0.1) 50%, rgba(0,0,0,0.1));
+  background-size: 100% 4px;
+  pointer-events: none;
+}
+
+/* Custom styles for clinical diagnostic workspace */
+.glass-panel {
+  background: rgba(22, 27, 34, 0.7);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid #3b4a47;
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: #0b141c;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #3b4a47;
+  border-radius: 3px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #859491;
+}
+
+.active-viewport-glow {
+  box-shadow: inset 0 0 0 1px #00d2c4;
+}
+
+/* Zebra striping for high density tables */
+.zebra-row:nth-child(even) {
+  background-color: #161b22;
+}
+.zebra-row:nth-child(odd) {
+  background-color: #0d1117;
+}
+
+/* Active field for structured reporting */
+.active-field {
+  border-color: #00D2C4 !important;
+  box-shadow: 0 0 0 1px #00D2C4;
+}
+
+.amber-warning-border {
+  border-color: #f59e0b !important;
+}
+
+/* Viewport border colors */
+.border-axial {
+  border: 2px solid #ef4444;
+}
+.border-coronal {
+  border: 2px solid #3b82f6;
+}
+.border-sagittal {
+  border: 2px solid #22c55e;
+}
+.border-3d {
+  border: 2px solid #eab308;
+}
+
+.crosshair-h {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background-color: rgba(255,255,255,0.3);
+  pointer-events: none;
+  z-index: 10;
+  top: 50%;
+}
+
+.crosshair-v {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background-color: rgba(255,255,255,0.3);
+  pointer-events: none;
+  z-index: 10;
+  left: 50%;
+}
+
