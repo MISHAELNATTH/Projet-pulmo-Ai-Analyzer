@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
+import axios from 'axios';
 import { Sidebar } from './Sidebar';
 
 interface Study {
-  id: number;
+  id: string | number;
   priority: 'STAT' | 'Routine';
   name: string;
   mrn: string;
@@ -12,6 +13,7 @@ interface Study {
   finding: string;
   findingColor: string;
   findingIcon: string;
+  scanId?: string;
 }
 
 const initialStudies: Study[] = [
@@ -63,12 +65,87 @@ const initialStudies: Study[] = [
 
 export const WorklistDashboard: React.FC = () => {
   const navigate = useNavigate();
-  const [studies, setStudies] = useState<Study[]>(initialStudies);
+  const [dbScans, setDbScans] = useState<any[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState<'ALL' | 'STAT' | 'Routine'>('ALL');
   const [isAddingScan, setIsAddingScan] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  const filteredStudies = studies.filter((study) => {
+  const fetchScans = () => {
+    const token = localStorage.getItem('token') || localStorage.getItem('access_token');
+    const headers = token ? { Authorization: `Bearer ${token}` } : {};
+
+    axios.get('http://localhost:8000/api/scans', { headers })
+      .then((response) => {
+        setDbScans(response.data);
+      })
+      .catch((err) => {
+        console.error('Error fetching scans:', err);
+      });
+  };
+
+  useEffect(() => {
+    fetchScans();
+  }, []);
+
+  const handleAddScanClick = () => {
+    if (fileInputRef.current) {
+      fileInputRef.current.click();
+    }
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    setIsAddingScan(true);
+    const formData = new FormData();
+    for (let i = 0; i < files.length; i++) {
+      formData.append('files', files[i]);
+    }
+
+    const token = localStorage.getItem('token') || localStorage.getItem('access_token');
+    const headers = token
+      ? {
+          'Content-Type': 'multipart/form-data',
+          Authorization: `Bearer ${token}`,
+        }
+      : { 'Content-Type': 'multipart/form-data' };
+
+    try {
+      await axios.post('http://localhost:8000/api/scans/upload', formData, { headers });
+      alert('DICOM scan uploaded and pseudonymized successfully!');
+      fetchScans(); // Refresh list
+    } catch (err: any) {
+      console.error('Upload failed:', err);
+      alert(`Upload failed: ${err.response?.data?.detail || err.message}`);
+    } finally {
+      setIsAddingScan(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ''; // Reset file input
+      }
+    }
+  };
+
+  // Map database scans to Study format
+  const mappedDbStudies: Study[] = dbScans.map((scan) => ({
+    id: scan.id,
+    scanId: scan.id,
+    priority: 'Routine', // Default to Routine for new uploads
+    name: scan.patient_pseudonym,
+    mrn: `MRN-${scan.id.substring(0, 8).toUpperCase()}`,
+    desc: 'CT CHEST W/O CONTRAST',
+    status: scan.status === 'pending' ? 'Uploaded' : scan.status === 'processing' ? 'Processing' : 'Completed',
+    finding: scan.status === 'pending' ? 'Analysis Pending' : 'Clear',
+    findingIcon: scan.status === 'pending' ? 'sync' : 'check_circle',
+    findingColor: scan.status === 'pending'
+      ? 'bg-surface-container-high text-on-surface-variant border border-outline-variant'
+      : 'bg-[#2ECC71]/10 text-[#2ECC71] border border-[#2ECC71]/30',
+  }));
+
+  const allStudies = [...mappedDbStudies, ...initialStudies];
+
+  const filteredStudies = allStudies.filter((study) => {
     const matchesSearch =
       study.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       study.mrn.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -78,51 +155,8 @@ export const WorklistDashboard: React.FC = () => {
     return matchesSearch && study.priority === filterType;
   });
 
-  const handleAddScan = () => {
-    setIsAddingScan(true);
-    setTimeout(() => {
-      const names = [
-        'BROWN, ELIZABETH R.',
-        'DAVIS, JAMES K.',
-        'GARCIA, MARIA M.',
-        'RODRIGUEZ, ANTONIO',
-      ];
-      const mrns = ['MRN-442918', 'MRN-221980', 'MRN-105432', 'MRN-609124'];
-      const descs = [
-        'CT CHEST HIGH RES',
-        'CT CHEST W/O CONTRAST',
-        'XR CHEST PA/LAT',
-        'CT ANGIO PULMONARY',
-      ];
-      const findings = ['Likely Nodule', 'Clear', 'Suspicious Density', 'Clear'];
-      const findingIcons = ['warning', 'check_circle', 'warning', 'check_circle'];
-      const findingColors = [
-        'bg-error/20 text-error border border-error/50',
-        'bg-[#2ECC71]/10 text-[#2ECC71] border border-[#2ECC71]/30',
-        'bg-amber-warning/20 text-amber-warning border border-amber-warning/30',
-        'bg-[#2ECC71]/10 text-[#2ECC71] border border-[#2ECC71]/30',
-      ];
-
-      const randomIndex = Math.floor(Math.random() * names.length);
-      const newStudy: Study = {
-        id: Date.now(),
-        priority: Math.random() > 0.5 ? 'STAT' : 'Routine',
-        name: names[randomIndex],
-        mrn: mrns[randomIndex],
-        desc: descs[randomIndex],
-        status: 'New',
-        finding: findings[randomIndex],
-        findingColor: findingColors[randomIndex],
-        findingIcon: findingIcons[randomIndex],
-      };
-
-      setStudies((prev) => [newStudy, ...prev]);
-      setIsAddingScan(false);
-    }, 800);
-  };
-
   const handleRowClick = (study: Study) => {
-    navigate('/viewer', { state: { patientName: study.name, mrn: study.mrn } });
+    navigate('/viewer', { state: { patientName: study.name, mrn: study.mrn, scanId: study.scanId || study.id } });
   };
 
   return (
@@ -215,16 +249,24 @@ export const WorklistDashboard: React.FC = () => {
                 </button>
               </div>
 
+              <input
+                type="file"
+                multiple
+                ref={fileInputRef}
+                onChange={handleFileChange}
+                className="hidden"
+                accept=".dcm"
+              />
               <button
                 className="flex items-center space-x-2 bg-surface text-primary border border-primary px-4 py-1.5 rounded hover:bg-primary/10 transition-colors shadow-[0_0_8px_rgba(71,239,224,0.15)] disabled:opacity-50 cursor-pointer"
-                onClick={handleAddScan}
+                onClick={handleAddScanClick}
                 disabled={isAddingScan}
               >
                 <span className="material-symbols-outlined text-sm">
                   {isAddingScan ? 'sync' : 'cloud_sync'}
                 </span>
                 <span className="text-mono-data font-mono-data">
-                  {isAddingScan ? 'Analyzing Scan...' : 'Add Scan for Analysis'}
+                  {isAddingScan ? 'Uploading Scan...' : 'Add Scan for Analysis'}
                 </span>
               </button>
             </div>
@@ -313,7 +355,7 @@ export const WorklistDashboard: React.FC = () => {
             {/* Table Footer / Pagination Status */}
             <div className="h-8 border-t border-[#30363D] bg-surface-container-lowest flex items-center justify-between px-4 shrink-0">
               <span className="text-label-caps font-label-caps text-on-surface-variant">
-                Showing 1-{filteredStudies.length} of {studies.length} studies
+                Showing 1-{filteredStudies.length} of {allStudies.length} studies
               </span>
               <div className="flex items-center space-x-2">
                 <button

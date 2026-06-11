@@ -7,6 +7,7 @@ from database import get_db
 import models
 import auth
 import upload_router
+import scans_router
 
 app = FastAPI(
     title="PneumoGuard AI Backend",
@@ -108,6 +109,7 @@ async def login_for_access_token(
 
 # Register Scan Upload Router
 app.include_router(upload_router.router)
+app.include_router(scans_router.router)
 
 # RBAC Test Routes
 @app.get("/api/test/radiologist-only")

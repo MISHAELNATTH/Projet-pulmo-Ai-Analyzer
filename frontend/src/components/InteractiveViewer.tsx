@@ -1,86 +1,91 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import axios from 'axios';
 import { Sidebar } from './Sidebar';
+import { CornerstoneViewport } from './CornerstoneViewport';
 import lungCtScan from '../assets/lung_ct_scan.png';
 import lungGradCamHeatmap from '../assets/lung_grad_cam_heatmap.png';
-
-interface Slice {
-  number: number;
-  image: string;
-}
-
-const slices: Slice[] = [
-  {
-    number: 142,
-    image: lungCtScan,
-  },
-  {
-    number: 143,
-    image: lungCtScan,
-  },
-  {
-    number: 144,
-    image: lungCtScan,
-  },
-  {
-    number: 145,
-    image: lungCtScan,
-  },
-  {
-    number: 146,
-    image: lungCtScan,
-  },
-  {
-    number: 147,
-    image: lungCtScan,
-  },
-];
 
 export const InteractiveViewer: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   
   // Extract state if navigation from Worklist passed it
-  const { patientName = 'DOE, JOHN A.', mrn = 'MRN-882941' } = (location.state || {}) as {
+  const stateFromLocation = (location.state || {}) as {
     patientName?: string;
     mrn?: string;
+    scanId?: string;
   };
 
-  // State variables for interactive simulation
+  const [scanId, setScanId] = useState<string | undefined>(stateFromLocation.scanId);
+  const [metadata, setMetadata] = useState<{
+    scan_id: string;
+    patient_pseudonym: string;
+    biological_sex: string;
+    age_at_scan: number;
+    slice_count: number;
+    dimensions: [number, number];
+    slice_thickness: number;
+    pixel_spacing: [number, number];
+    study_date?: string;
+  } | null>(null);
+
+  // State variables for interactive viewport
   const [activeSliceIndex, setActiveSliceIndex] = useState(0);
   const [aiOverlayActive, setAiOverlayActive] = useState(true);
   const [windowPreset, setWindowPreset] = useState<'LUNG' | 'SOFT'>('LUNG');
   const [activeTool, setActiveTool] = useState<'pan' | 'zoom' | 'contrast' | 'none'>('none');
   const [heatmapZoomed, setHeatmapZoomed] = useState(false);
 
-  const currentSlice = slices[activeSliceIndex];
+  // Fetch list of scans if no scanId was passed
+  useEffect(() => {
+    const token = localStorage.getItem('token') || localStorage.getItem('access_token');
+    const headers = token ? { Authorization: `Bearer ${token}` } : {};
+
+    if (!scanId) {
+      axios.get('http://localhost:8000/api/scans', { headers })
+        .then(response => {
+          if (response.data && response.data.length > 0) {
+            setScanId(response.data[0].id);
+          }
+        })
+        .catch(err => console.error('Error fetching scans:', err));
+    }
+  }, [scanId]);
+
+  // Fetch scan metadata when scanId is set
+  useEffect(() => {
+    if (!scanId) return;
+
+    const token = localStorage.getItem('token') || localStorage.getItem('access_token');
+    const headers = token ? { Authorization: `Bearer ${token}` } : {};
+
+    axios.get(`http://localhost:8000/api/scans/${scanId}/metadata`, { headers })
+      .then(response => {
+        setMetadata(response.data);
+        setActiveSliceIndex(0); // Reset index to first slice
+      })
+      .catch(err => console.error('Error fetching scan metadata:', err));
+  }, [scanId]);
+
+  // Derived data
+  const sliceCount = metadata?.slice_count || 1;
+  const sliceThickness = metadata?.slice_thickness || 1.0;
+  const patientName = metadata?.patient_pseudonym || stateFromLocation.patientName || 'DOE, JOHN A.';
+  const mrn = metadata?.scan_id ? metadata.scan_id.substring(0, 8).toUpperCase() : (stateFromLocation.mrn || 'MRN-882941');
+  const studyDate = metadata?.study_date || '2023-11-04';
 
   const handleFinalDiagnosis = () => {
     navigate('/reports', { state: { patientName, mrn } });
   };
 
-  // Adjust style depending on active tools and window level presets
-  const getSliceImageStyle = () => {
-    let style = '';
-    
-    // Apply visual effects depending on windowing preset
-    if (windowPreset === 'SOFT') {
-      style += ' brightness-[0.6] contrast-[1.4] saturate-[0.8]';
-    } else {
-      style += ' brightness-[1.0] contrast-[1.0]';
+  const handleWheelScroll = (e: React.WheelEvent) => {
+    if (activeTool !== 'none') return; // Only allow scroll wheel slice switching when tools are idle
+    if (e.deltaY > 0) {
+      setActiveSliceIndex((prev) => Math.min(sliceCount - 1, prev + 1));
+    } else if (e.deltaY < 0) {
+      setActiveSliceIndex((prev) => Math.max(0, prev - 1));
     }
-
-    // Adjust scale for zoom tool simulation
-    if (activeTool === 'zoom') {
-      style += ' scale-125';
-    }
-
-    // Apply filter for window leveling contrast simulation
-    if (activeTool === 'contrast') {
-      style += ' invert-[0.1]';
-    }
-
-    return style.trim();
   };
 
   return (
@@ -95,7 +100,7 @@ export const InteractiveViewer: React.FC = () => {
           <span className="text-on-surface-variant mx-1">|</span>
           <span className="text-on-surface">Patient: {patientName}</span>
           <span className="text-on-surface-variant ml-2">MRN: {mrn.replace('MRN-', '').replace('MRN: ', '')}</span>
-          <span className="text-on-surface-variant ml-2">Study: 2023-11-04</span>
+          <span className="text-on-surface-variant ml-2">Study: {studyDate}</span>
           <span className="text-on-surface-variant ml-2">Modality: CT</span>
         </div>
         <div className="flex items-center gap-4">
@@ -118,9 +123,12 @@ export const InteractiveViewer: React.FC = () => {
           {/* Large Main Viewport Area */}
           <div className="flex-1 flex flex-col gap-4 overflow-hidden">
             {/* Dominant Axial Viewport */}
-            <div className="flex-1 bg-black relative overflow-hidden border-axial rounded flex flex-col group">
+            <div 
+              className="flex-1 bg-black relative overflow-hidden border-axial rounded flex flex-col group"
+              onWheel={handleWheelScroll}
+            >
               <div className="absolute top-4 left-4 z-10 text-mono-data font-mono-data text-on-surface drop-shadow-md text-lg">
-                Primary Axial View [A] — Slice {currentSlice.number}/280
+                Primary Axial View [A] — Slice {activeSliceIndex + 1}/{sliceCount}
               </div>
 
               {aiOverlayActive && (
@@ -209,50 +217,51 @@ export const InteractiveViewer: React.FC = () => {
               </div>
 
               {/* Large Scan Slice Viewer */}
-              <div 
-                className={`w-full h-full bg-cover bg-center transition-all duration-300 relative ${getSliceImageStyle()}`}
-                style={{ backgroundImage: `url('${currentSlice.image}')` }}
-              >
-                {/* Highlight box around simulated nodule if AI is active */}
-                {aiOverlayActive && activeSliceIndex === 0 && (
-                  <div 
-                    className="absolute border border-primary bg-primary/10 w-[64px] h-[64px] rounded-sm animate-pulse"
-                    style={{
-                      left: '52%',
-                      top: '38%',
-                      boxShadow: '0 0 10px rgba(71, 239, 224, 0.6)'
-                    }}
-                    title="AI DETECTED NODULE"
-                  >
-                    <div className="absolute -top-6 -left-1 bg-primary text-[#0B0E14] text-[9px] font-mono px-1 rounded font-bold whitespace-nowrap">
-                      AI DETECTED NODULE
-                    </div>
+              <div className="w-full h-full relative">
+                {scanId ? (
+                  <CornerstoneViewport
+                    scanId={scanId}
+                    sliceIndex={activeSliceIndex}
+                    windowPreset={windowPreset}
+                    activeTool={activeTool}
+                    aiOverlayActive={aiOverlayActive}
+                  />
+                ) : (
+                  <div className="w-full h-full bg-black flex flex-col items-center justify-center text-on-surface-variant font-mono-data">
+                    <span className="material-symbols-outlined text-4xl mb-2 text-outline">clinical_research</span>
+                    <span>NO CLINICAL SCAN LOADED</span>
+                    <button
+                      onClick={() => navigate('/dashboard')}
+                      className="mt-4 px-4 py-2 bg-primary text-[#0B0E14] font-bold rounded cursor-pointer transition-all active:scale-95"
+                    >
+                      GO TO WORKLIST
+                    </button>
                   </div>
                 )}
               </div>
 
-              <div className="absolute bottom-4 left-4 z-10 text-mono-data font-mono-data text-on-surface-variant drop-shadow-md text-xs">
-                {windowPreset === 'LUNG' ? 'W: 1500 L: -600' : 'W: 400 L: 40'} | Slice: {currentSlice.number}/280 | Thick: 1.00 mm
+              <div className="absolute bottom-4 left-4 z-10 text-mono-data font-mono-data text-on-surface-variant drop-shadow-md text-xs pointer-events-none">
+                Thick: {sliceThickness.toFixed(2)} mm
               </div>
             </div>
 
             {/* 2D Slices Thumbnail Strip */}
             <div className="h-24 flex gap-2 overflow-x-auto pb-2 custom-scrollbar shrink-0">
-              {slices.map((slice, index) => (
+              {Array.from({ length: sliceCount }, (_, index) => (
                 <div
-                  key={slice.number}
+                  key={index}
                   className={`min-w-[80px] h-full rounded border-2 transition-all cursor-pointer bg-black/40 overflow-hidden relative ${
                     activeSliceIndex === index ? 'border-primary scale-[0.98]' : 'border-[#30363D] hover:border-primary/50'
                   }`}
                   onClick={() => setActiveSliceIndex(index)}
                 >
                   <img
-                    alt={`Slice ${slice.number}`}
-                    className="w-full h-full object-cover"
-                    src={slice.image}
+                    alt={`Slice ${index}`}
+                    className="w-full h-full object-cover opacity-60 hover:opacity-100"
+                    src={lungCtScan}
                   />
                   <span className="absolute bottom-1 right-1 text-[9px] font-mono bg-black/70 px-1 rounded text-on-surface">
-                    {slice.number}
+                    {index + 1}
                   </span>
                 </div>
               ))}
