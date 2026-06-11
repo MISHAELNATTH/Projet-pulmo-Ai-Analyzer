@@ -2,9 +2,11 @@ from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
+import os
 from database import get_db
 import models
 import auth
+import upload_router
 
 app = FastAPI(
     title="PneumoGuard AI Backend",
@@ -25,6 +27,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Initialize storage and temp folders on app startup
+@app.on_event("startup")
+def startup_event():
+    os.makedirs("./temp_uploads", exist_ok=True)
+    os.makedirs("./storage/dicom_uploads", exist_ok=True)
 
 @app.get("/")
 async def root():
@@ -97,6 +105,9 @@ async def login_for_access_token(
         "email": user.email,
         "name": f"{user.first_name} {user.last_name}" if user.first_name else user.email
     }
+
+# Register Scan Upload Router
+app.include_router(upload_router.router)
 
 # RBAC Test Routes
 @app.get("/api/test/radiologist-only")
