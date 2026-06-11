@@ -176,17 +176,15 @@ export const StudyArchive: React.FC = () => {
   };
 
   return (
-    <div className="bg-background text-on-background selection:bg-primary/30 min-h-screen w-screen overflow-hidden flex">
-      {/* Sidebar Navigation */}
-      <Sidebar activeTab="archive" />
-
-      {/* Top Navigation Bar */}
-      <header className="fixed top-0 right-0 left-sidebar-width h-16 bg-surface-dim/80 backdrop-blur-md border-b border-outline-variant flex justify-between items-center px-gutter z-40 w-[calc(100%-64px)]">
-        <div className="flex items-center gap-6">
+    <div className="min-h-screen w-screen flex flex-col bg-[#0B0E14] text-on-background antialiased font-body-md overflow-hidden">
+      {/* Full Width TopNavBar */}
+      <header className="h-16 bg-surface-dim/80 backdrop-blur-md border-b border-[#30363D] flex justify-between items-center px-4 fixed top-0 left-0 w-full z-40">
+        <div className="flex items-center space-x-3">
+          <span className="material-symbols-outlined text-primary text-2xl">pulmonology</span>
           <span className="text-title-sm font-title-sm font-bold text-primary tracking-widest uppercase">
             PneumoGuard AI
           </span>
-          <div className="h-6 w-px bg-outline-variant"></div>
+          <div className="h-4 w-px bg-[#30363D] mx-2"></div>
           <div className="flex gap-4 items-center">
             <span className="text-on-surface-variant font-mono-data text-body-sm">ARCHIVE VIEW</span>
             <span className="text-on-surface-variant font-mono-data text-body-sm opacity-40">•</span>
@@ -197,13 +195,13 @@ export const StudyArchive: React.FC = () => {
         </div>
         <div className="flex items-center gap-4">
           <button 
-            className="text-on-surface-variant hover:text-primary-fixed transition-colors cursor-pointer"
+            className="text-on-surface-variant hover:text-primary-fixed transition-colors cursor-pointer p-2 flex items-center justify-center bg-transparent border-none"
             onClick={() => alert('PACS Gateway is healthy. Synchronized with core storage.')}
           >
             <span className="material-symbols-outlined">notifications_active</span>
           </button>
           <button 
-            className="text-on-surface-variant hover:text-primary-fixed transition-colors cursor-pointer"
+            className="text-on-surface-variant hover:text-primary-fixed transition-colors cursor-pointer p-2 flex items-center justify-center bg-transparent border-none"
             onClick={() => navigate('/')}
           >
             <span className="material-symbols-outlined">lock_open</span>
@@ -211,8 +209,12 @@ export const StudyArchive: React.FC = () => {
         </div>
       </header>
 
-      {/* Main Content Area */}
-      <main className="ml-sidebar-width mt-16 p-6 h-[calc(100vh-4rem)] w-[calc(100%-64px)] flex flex-col gap-6 overflow-hidden">
+      <div className="flex flex-1 pt-16">
+        {/* Sidebar Navigation */}
+        <Sidebar activeTab="archive" />
+
+        {/* Main Content Area */}
+        <main className="ml-sidebar-width flex-1 p-6 h-[calc(100vh-4rem)] flex flex-col gap-6 overflow-hidden">
         {/* Header & Global Search */}
         <section className="flex flex-col md:flex-row md:items-end justify-between gap-4">
           <div>
@@ -559,6 +561,7 @@ export const StudyArchive: React.FC = () => {
             Finalize Report
           </button>
         </div>
+      </div>
       </div>
     </div>
   );

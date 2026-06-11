@@ -7,11 +7,7 @@ interface SidebarProps {
 
 export const Sidebar: React.FC<SidebarProps> = ({ activeTab }) => {
   return (
-    <aside className="fixed left-0 top-0 h-full w-sidebar-width bg-surface-container dark:bg-surface-container-low/70 backdrop-blur-xl border-r border-outline-variant flex flex-col items-center py-panel-padding space-y-stack-gap z-50">
-      <div className="mb-6 mt-2 flex flex-col items-center justify-center cursor-pointer group" title="PneumoGuard AI">
-        <span className="text-title-sm font-title-sm font-black text-primary uppercase tracking-tighter">PG</span>
-      </div>
-      
+    <aside className="fixed left-0 top-16 h-[calc(100vh-4rem)] w-sidebar-width bg-[#161b22] border-r border-[#30363D] flex flex-col items-center py-4 space-y-2 z-50">
       <nav className="w-full flex-1 flex flex-col space-y-2">
         {/* Worklist */}
         <Link
@@ -29,7 +25,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab }) => {
           >
             list_alt
           </span>
-          <span className="text-label-caps font-label-caps text-[8px] uppercase">Worklist</span>
+          <span className="text-label-caps font-label-caps text-[8px] uppercase">W...</span>
         </Link>
 
         {/* Viewer */}
@@ -48,7 +44,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab }) => {
           >
             visibility
           </span>
-          <span className="text-label-caps font-label-caps text-[8px] uppercase">Viewer</span>
+          <span className="text-label-caps font-label-caps text-[8px] uppercase">Vie...</span>
         </Link>
 
         {/* Reports */}
@@ -67,7 +63,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab }) => {
           >
             description
           </span>
-          <span className="text-label-caps font-label-caps text-[8px] uppercase">Reports</span>
+          <span className="text-label-caps font-label-caps text-[8px] uppercase">Re...</span>
         </Link>
 
         {/* Archive */}
@@ -86,7 +82,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab }) => {
           >
             inventory_2
           </span>
-          <span className="text-label-caps font-label-caps text-[8px] uppercase">Archive</span>
+          <span className="text-label-caps font-label-caps text-[8px] uppercase">Ar...</span>
         </Link>
 
         {/* Settings */}
@@ -103,7 +99,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab }) => {
           <span className="material-symbols-outlined mb-1 group-hover:scale-110 transition-transform">
             settings
           </span>
-          <span className="text-label-caps font-label-caps text-[8px] uppercase">Settings</span>
+          <span className="text-label-caps font-label-caps text-[8px] uppercase">Set...</span>
         </a>
       </nav>
 

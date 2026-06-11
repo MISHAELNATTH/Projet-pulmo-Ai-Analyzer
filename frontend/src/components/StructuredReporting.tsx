@@ -153,17 +153,15 @@ export const StructuredReporting: React.FC = () => {
   };
 
   return (
-    <div className="bg-[#0B0E14] text-on-background min-h-screen w-screen flex font-body-md overflow-hidden">
-      {/* SideNavBar */}
-      <Sidebar activeTab="reports" />
-
-      {/* TopNavBar */}
-      <header className="fixed top-0 right-0 left-sidebar-width h-16 bg-surface-dim/80 backdrop-blur-md border-b border-outline-variant flex justify-between items-center px-gutter w-[calc(100%-64px)] z-40">
-        <div className="flex items-center space-x-4">
-          <span className="text-title-sm font-title-sm font-bold text-primary tracking-widest">
+    <div className="min-h-screen w-screen flex flex-col bg-[#0B0E14] text-on-background antialiased font-body-md overflow-hidden">
+      {/* Full Width TopNavBar */}
+      <header className="h-16 bg-surface-dim/80 backdrop-blur-md border-b border-[#30363D] flex justify-between items-center px-4 fixed top-0 left-0 w-full z-40">
+        <div className="flex items-center space-x-3">
+          <span className="material-symbols-outlined text-primary text-2xl">pulmonology</span>
+          <span className="text-title-sm font-title-sm font-bold text-primary tracking-widest uppercase">
             PneumoGuard AI
           </span>
-          <div className="h-4 w-px bg-outline-variant mx-2"></div>
+          <div className="h-4 w-px bg-[#30363D] mx-2"></div>
           <div className="flex space-x-6 text-mono-data font-mono-data text-on-surface-variant text-body-sm">
             <span>Patient: {patientName}</span>
             <span>{mrn}</span>
@@ -172,7 +170,7 @@ export const StructuredReporting: React.FC = () => {
           </div>
         </div>
         <div className="flex items-center space-x-4 text-primary dark:text-primary-fixed">
-          <div className="w-8 h-8 rounded-full bg-surface-variant border border-outline-variant overflow-hidden ml-2 cursor-pointer">
+          <div className="w-8 h-8 rounded-full bg-surface-variant border border-[#30363D] overflow-hidden ml-2 cursor-pointer">
             <img
               alt="Radiologist Session"
               className="w-full h-full object-cover"
@@ -182,8 +180,12 @@ export const StructuredReporting: React.FC = () => {
         </div>
       </header>
 
-      {/* Main Content Area */}
-      <main className="ml-[64px] mt-16 p-margin-page w-[calc(100%-64px)] h-[calc(100vh-64px)] flex gap-gutter overflow-hidden">
+      <div className="flex flex-1 pt-16">
+        {/* SideNavBar */}
+        <Sidebar activeTab="reports" />
+
+        {/* Main Content Area */}
+        <main className="ml-sidebar-width flex-1 p-margin-page h-[calc(100vh-4rem)] flex gap-gutter overflow-hidden">
         {/* Left Column: Validated Findings Ledger */}
         <section className="w-[340px] flex flex-col gap-4 h-full overflow-y-auto pr-2 pb-4 custom-scrollbar shrink-0">
           <div className="flex items-center justify-between mb-2 shrink-0">
@@ -514,6 +516,7 @@ export const StructuredReporting: React.FC = () => {
           </div>
         </section>
       </main>
+      </div>
     </div>
   );
 };
