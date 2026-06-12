@@ -72,6 +72,24 @@ export const WorklistDashboard: React.FC = () => {
   const [isAddingScan, setIsAddingScan] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
+  // Manual Ingestion metadata override states
+  const [ingestionName, setIngestionName] = useState('');
+  const [ingestionId, setIngestionId] = useState('');
+  const [ingestionAge, setIngestionAge] = useState<number>(0);
+  const [ingestionSex, setIngestionSex] = useState<'M' | 'F' | 'O'>('O');
+  const [deletedInitialIds, setDeletedInitialIds] = useState<number[]>(() => {
+    try {
+      const saved = localStorage.getItem('deletedInitialIds');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  useEffect(() => {
+    localStorage.setItem('deletedInitialIds', JSON.stringify(deletedInitialIds));
+  }, [deletedInitialIds]);
+
   const fetchScans = () => {
     const token = localStorage.getItem('token') || localStorage.getItem('access_token');
     const headers = token ? { Authorization: `Bearer ${token}` } : {};
@@ -100,9 +118,21 @@ export const WorklistDashboard: React.FC = () => {
     if (!files || files.length === 0) return;
 
     setIsAddingScan(true);
+    
+    // Filter uploaded files to include ONLY .dcm extension
+    const dcmFiles = Array.from(files).filter(file => file.name.toLowerCase().endsWith('.dcm'));
+    if (dcmFiles.length === 0) {
+      alert("No DICOM (.dcm) files found in the selected folder.");
+      setIsAddingScan(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+      return;
+    }
+
     const formData = new FormData();
-    for (let i = 0; i < files.length; i++) {
-      formData.append('files', files[i]);
+    for (let i = 0; i < dcmFiles.length; i++) {
+      formData.append('files', dcmFiles[i]);
     }
 
     const token = localStorage.getItem('token') || localStorage.getItem('access_token');
@@ -115,7 +145,14 @@ export const WorklistDashboard: React.FC = () => {
 
     try {
       const response = await axios.post('http://localhost:8000/api/scans/upload', formData, { headers });
-      setPendingIngestion(response.data);
+      const data = response.data;
+      setPendingIngestion(data);
+      
+      // Auto-extract metadata from headers or set defaults
+      setIngestionName(data.patient_name || '');
+      setIngestionId(data.patient_id || '');
+      setIngestionAge(data.age || 0);
+      setIngestionSex(data.sex === 'M' || data.sex === 'F' || data.sex === 'O' ? data.sex : 'O');
     } catch (err: any) {
       console.error('Upload failed:', err);
       alert(`Upload failed: ${err.response?.data?.detail || err.message}`);
@@ -127,15 +164,57 @@ export const WorklistDashboard: React.FC = () => {
     }
   };
 
-  const handleConfirmIngestion = () => {
-    setPendingIngestion(null);
-    fetchScans(); // Reload scanned items dynamically
+  const handleConfirmIngestion = async () => {
+    if (!pendingIngestion) return;
+
+    const token = localStorage.getItem('token') || localStorage.getItem('access_token');
+    const headers = token ? { Authorization: `Bearer ${token}` } : {};
+
+    try {
+      await axios.post(
+        `http://localhost:8000/api/scans/${pendingIngestion.scan_id}/confirm`,
+        {
+          patient_name: ingestionName || 'Unknown Patient',
+          patient_id: ingestionId || '',
+          age: Number(ingestionAge) || 0,
+          sex: ingestionSex,
+        },
+        { headers }
+      );
+      setPendingIngestion(null);
+      fetchScans(); // Reload list to show the confirmed record
+    } catch (err: any) {
+      console.error('Ingestion confirmation failed:', err);
+      alert(`Ingestion confirmation failed: ${err.response?.data?.detail || err.message}`);
+    }
   };
 
   const handleCancelIngestion = () => {
-    // Dismiss confirmation modal
     setPendingIngestion(null);
     fetchScans();
+  };
+
+  const handleDeleteScan = async (scanId: string | number, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!window.confirm("Are you sure you want to delete this study and all its files?")) {
+      return;
+    }
+
+    if (typeof scanId === 'number') {
+      setDeletedInitialIds((prev) => [...prev, scanId]);
+      return;
+    }
+
+    const token = localStorage.getItem('token') || localStorage.getItem('access_token');
+    const headers = token ? { Authorization: `Bearer ${token}` } : {};
+
+    try {
+      await axios.delete(`http://localhost:8000/api/scans/${scanId}`, { headers });
+      fetchScans();
+    } catch (err: any) {
+      console.error('Failed to delete scan:', err);
+      alert(`Failed to delete scan: ${err.response?.data?.detail || err.message}`);
+    }
   };
 
   // Map database scans to Study format
@@ -154,7 +233,10 @@ export const WorklistDashboard: React.FC = () => {
       : 'bg-[#2ECC71]/10 text-[#2ECC71] border border-[#2ECC71]/30',
   }));
 
-  const allStudies = [...mappedDbStudies, ...initialStudies];
+  const allStudies = [
+    ...mappedDbStudies,
+    ...initialStudies.filter((study) => !deletedInitialIds.includes(Number(study.id)))
+  ];
 
   const filteredStudies = allStudies.filter((study) => {
     const matchesSearch =
@@ -267,6 +349,7 @@ export const WorklistDashboard: React.FC = () => {
                 onChange={handleFileChange}
                 className="hidden"
                 accept=".dcm"
+                {...{ webkitdirectory: "", directory: "" }}
               />
               <button
                 className="flex items-center space-x-2 bg-surface text-primary border border-primary px-4 py-1.5 rounded hover:bg-primary/10 transition-colors shadow-[0_0_8px_rgba(71,239,224,0.15)] disabled:opacity-50 cursor-pointer"
@@ -291,8 +374,9 @@ export const WorklistDashboard: React.FC = () => {
               <div className="col-span-3">Patient Name</div>
               <div className="col-span-2">MRN</div>
               <div className="col-span-2">Study Description</div>
-              <div className="col-span-2">Status</div>
+              <div className="col-span-1">Status</div>
               <div className="col-span-2">AI Finding</div>
+              <div className="col-span-1 text-center">Actions</div>
             </div>
 
             {/* Table Body */}
@@ -329,7 +413,7 @@ export const WorklistDashboard: React.FC = () => {
                     <div className="col-span-2 text-mono-data font-mono-data text-on-surface truncate" title={study.desc}>
                       {study.desc}
                     </div>
-                    <div className="col-span-2 flex items-center">
+                    <div className="col-span-1 flex items-center">
                       {study.status === 'In Review' ? (
                         <span className="bg-[#42474f]/30 text-on-surface-variant border border-[#30363D] px-1.5 py-[2px] rounded text-[10px] font-bold uppercase tracking-wider">
                           In Review
@@ -357,6 +441,15 @@ export const WorklistDashboard: React.FC = () => {
                           <span>{study.finding}</span>
                         </span>
                       )}
+                    </div>
+                    <div className="col-span-1 flex items-center justify-center">
+                      <button
+                        onClick={(e) => handleDeleteScan(study.scanId || study.id, e)}
+                        className="text-on-surface-variant hover:text-error transition-colors p-1 rounded hover:bg-error/10 flex items-center justify-center cursor-pointer border-none bg-transparent"
+                        title="Delete clinical study"
+                      >
+                        <span className="material-symbols-outlined text-lg">delete</span>
+                      </button>
                     </div>
                   </div>
                 ))
@@ -399,28 +492,63 @@ export const WorklistDashboard: React.FC = () => {
               </div>
             </header>
 
-            <div className="bg-surface-container-low p-4 rounded border border-[#30363D]/50 flex flex-col gap-3 font-mono-data text-xs">
-              <div className="flex justify-between border-b border-[#30363D]/30 pb-2">
-                <span className="text-on-surface-variant uppercase">Patient Name:</span>
-                <span className="text-primary font-bold">{pendingIngestion.patient_name || 'Unknown'}</span>
+            <div className="bg-surface-container-low p-4 rounded border border-[#30363D]/50 flex flex-col gap-3 text-xs">
+              <div className="flex flex-col gap-1">
+                <label className="text-[10px] text-on-surface-variant uppercase font-bold">Patient Name (Editable)</label>
+                <input
+                  type="text"
+                  value={ingestionName}
+                  onChange={(e) => setIngestionName(e.target.value)}
+                  className="bg-[#0B0E14] border border-[#30363D] text-on-surface rounded p-2 focus:outline-none focus:border-primary w-full text-xs font-mono-data"
+                  placeholder="e.g. DOE, JOHN"
+                />
               </div>
-              <div className="flex justify-between border-b border-[#30363D]/30 pb-2">
-                <span className="text-on-surface-variant uppercase">Patient ID / MRN:</span>
-                <span className="text-on-surface">{pendingIngestion.patient_id || 'Unknown'}</span>
+
+              <div className="flex flex-col gap-1">
+                <label className="text-[10px] text-on-surface-variant uppercase font-bold">Patient ID / MRN (Editable)</label>
+                <input
+                  type="text"
+                  value={ingestionId}
+                  onChange={(e) => setIngestionId(e.target.value)}
+                  className="bg-[#0B0E14] border border-[#30363D] text-on-surface rounded p-2 focus:outline-none focus:border-primary w-full text-xs font-mono-data"
+                  placeholder="e.g. MRN-882941"
+                />
               </div>
-              <div className="flex justify-between border-b border-[#30363D]/30 pb-2">
-                <span className="text-on-surface-variant uppercase">Age / Gender:</span>
-                <span className="text-on-surface">{pendingIngestion.age} Y / {pendingIngestion.sex}</span>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="flex flex-col gap-1">
+                  <label className="text-[10px] text-on-surface-variant uppercase font-bold">Age (Years)</label>
+                  <input
+                    type="number"
+                    value={ingestionAge === 0 ? '' : ingestionAge}
+                    onChange={(e) => setIngestionAge(Number(e.target.value))}
+                    className="bg-[#0B0E14] border border-[#30363D] text-on-surface rounded p-2 focus:outline-none focus:border-primary w-full text-xs font-mono-data"
+                    placeholder="e.g. 45"
+                  />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className="text-[10px] text-on-surface-variant uppercase font-bold">Gender</label>
+                  <select
+                    value={ingestionSex}
+                    onChange={(e) => setIngestionSex(e.target.value as 'M' | 'F' | 'O')}
+                    className="bg-[#0B0E14] border border-[#30363D] text-on-surface rounded p-2 focus:outline-none focus:border-primary w-full text-xs font-mono-data cursor-pointer"
+                  >
+                    <option value="M">Male (M)</option>
+                    <option value="F">Female (F)</option>
+                    <option value="O">Other (O)</option>
+                  </select>
+                </div>
               </div>
-              <div className="flex justify-between border-b border-[#30363D]/30 pb-2">
+
+              <div className="flex justify-between border-t border-[#30363D]/30 pt-2 font-mono-data">
                 <span className="text-on-surface-variant uppercase">Study Date:</span>
                 <span className="text-on-surface">{pendingIngestion.study_date || 'N/A'}</span>
               </div>
-              <div className="flex justify-between border-b border-[#30363D]/30 pb-2">
+              <div className="flex justify-between border-b border-[#30363D]/30 pb-2 font-mono-data">
                 <span className="text-on-surface-variant uppercase">Slice Count:</span>
                 <span className="text-primary font-bold">{pendingIngestion.slice_count} Slices</span>
               </div>
-              <div className="flex flex-col gap-1 pt-1 bg-primary/5 p-2 rounded border border-primary/20 mt-1">
+              <div className="flex flex-col gap-1 pt-1 bg-primary/5 p-2 rounded border border-primary/20 mt-1 font-mono-data">
                 <span className="text-[10px] text-primary uppercase font-bold tracking-wider">GDPR Pseudonym ID (Saved to disk):</span>
                 <span className="text-on-surface-variant select-all text-[10.5px] truncate">{pendingIngestion.patient_pseudonym}</span>
               </div>

@@ -1,12 +1,22 @@
 import React, { useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 
+export interface Nodule {
+  nodule_id: string;
+  centroid: [number, number, number];
+  bounding_box: [[number, number, number], [number, number, number]];
+  confidence: number;
+  size_mm: number;
+  location: string;
+}
+
 interface CornerstoneViewportProps {
   scanId: string;
   sliceIndex: number;
   windowPreset: 'LUNG' | 'SOFT';
   activeTool: 'pan' | 'zoom' | 'contrast' | 'none';
   aiOverlayActive: boolean;
+  nodules?: Nodule[];
 }
 
 export const CornerstoneViewport: React.FC<CornerstoneViewportProps> = ({
@@ -15,6 +25,7 @@ export const CornerstoneViewport: React.FC<CornerstoneViewportProps> = ({
   windowPreset,
   activeTool,
   aiOverlayActive,
+  nodules = [],
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -161,27 +172,55 @@ export const CornerstoneViewport: React.FC<CornerstoneViewportProps> = ({
     // Draw slice
     ctx.drawImage(offscreenCanvas, 0, 0);
 
-    // Renders the AI Co-Pilot annotation overlays (centered around suspicious nodule)
-    if (aiOverlayActive && sliceIndex === 0) {
-      const noduleX = 260;
-      const noduleY = 190;
-      const noduleW = 48;
-      const noduleH = 48;
+    // Renders the AI Co-Pilot annotation overlays
+    if (aiOverlayActive) {
+      if (nodules && nodules.length > 0) {
+        nodules.forEach((nodule) => {
+          const [[z_min, y_min, x_min], [z_max, y_max, x_max]] = nodule.bounding_box;
+          if (sliceIndex >= z_min && sliceIndex <= z_max) {
+            const noduleX = x_min;
+            const noduleY = y_min;
+            const noduleW = x_max - x_min;
+            const noduleH = y_max - y_min;
 
-      ctx.strokeStyle = '#47EFE0'; // Pulmo Cyan
-      ctx.lineWidth = Math.max(1, 2 / zoom);
-      ctx.fillStyle = 'rgba(71, 239, 224, 0.15)';
-      ctx.strokeRect(noduleX, noduleY, noduleW, noduleH);
-      ctx.fillRect(noduleX, noduleY, noduleW, noduleH);
+            ctx.strokeStyle = '#47EFE0'; // Pulmo Cyan
+            ctx.lineWidth = Math.max(1, 2 / zoom);
+            ctx.fillStyle = 'rgba(71, 239, 224, 0.15)';
+            ctx.strokeRect(noduleX, noduleY, noduleW, noduleH);
+            ctx.fillRect(noduleX, noduleY, noduleW, noduleH);
 
-      // Label Overlay
-      ctx.fillStyle = '#47EFE0';
-      ctx.font = `bold ${Math.max(10, 12 / zoom)}px monospace`;
-      ctx.fillText('AI DETECTED NODULE', noduleX, noduleY - 6 / zoom);
+            // Label Overlay
+            ctx.fillStyle = '#47EFE0';
+            ctx.font = `bold ${Math.max(10, 12 / zoom)}px monospace`;
+            ctx.fillText(
+              `NODULE (${Math.round(nodule.confidence * 100)}%)`,
+              noduleX,
+              noduleY - 6 / zoom
+            );
+          }
+        });
+      } else if (sliceIndex === 0) {
+        // Fallback mockup overlay if no nodules are parsed
+        const noduleX = 260;
+        const noduleY = 190;
+        const noduleW = 48;
+        const noduleH = 48;
+
+        ctx.strokeStyle = '#47EFE0'; // Pulmo Cyan
+        ctx.lineWidth = Math.max(1, 2 / zoom);
+        ctx.fillStyle = 'rgba(71, 239, 224, 0.15)';
+        ctx.strokeRect(noduleX, noduleY, noduleW, noduleH);
+        ctx.fillRect(noduleX, noduleY, noduleW, noduleH);
+
+        // Label Overlay
+        ctx.fillStyle = '#47EFE0';
+        ctx.font = `bold ${Math.max(10, 12 / zoom)}px monospace`;
+        ctx.fillText('AI DETECTED NODULE', noduleX, noduleY - 6 / zoom);
+      }
     }
 
     ctx.restore();
-  }, [sliceData, dimensions, zoom, pan, windowWidth, windowCenter, aiOverlayActive, sliceIndex]);
+  }, [sliceData, dimensions, zoom, pan, windowWidth, windowCenter, aiOverlayActive, sliceIndex, nodules]);
 
   // Mouse Handlers for Interactivity (Pan/Zoom/Contrast)
   const handleMouseDown = (e: React.MouseEvent) => {

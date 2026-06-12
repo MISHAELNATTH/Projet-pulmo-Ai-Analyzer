@@ -1,0 +1,398 @@
+{
+    "status": "completed",
+    "model_version": "MONAI RetinaNet v0.6.9 (CPU)",
+    "inference_time_ms": 511778,
+    "nodules": [
+        {
+            "nodule_id": "nodule_real_1",
+            "centroid": [
+                53,
+                198,
+                155
+            ],
+            "bounding_box": [
+                [
+                    49,
+                    192,
+                    149
+                ],
+                [
+                    57,
+                    204,
+                    161
+                ]
+            ],
+            "confidence": 0.990746259689331,
+            "size_mm": 24.0,
+            "location": "Left Lower Lobe"
+        },
+        {
+            "nodule_id": "nodule_real_2",
+            "centroid": [
+                72,
+                193,
+                159
+            ],
+            "bounding_box": [
+                [
+                    69,
+                    189,
+                    155
+                ],
+                [
+                    76,
+                    198,
+                    164
+                ]
+            ],
+            "confidence": 0.972705602645874,
+            "size_mm": 21.0,
+            "location": "Left Lower Lobe"
+        },
+        {
+            "nodule_id": "nodule_real_3",
+            "centroid": [
+                55,
+                244,
+                272
+            ],
+            "bounding_box": [
+                [
+                    49,
+                    236,
+                    264
+                ],
+                [
+                    62,
+                    253,
+                    281
+                ]
+            ],
+            "confidence": 0.9575509428977966,
+            "size_mm": 39.0,
+            "location": "Right Lower Lobe"
+        },
+        {
+            "nodule_id": "nodule_real_4",
+            "centroid": [
+                59,
+                199,
+                163
+            ],
+            "bounding_box": [
+                [
+                    57,
+                    196,
+                    160
+                ],
+                [
+                    61,
+                    202,
+                    166
+                ]
+            ],
+            "confidence": 0.6079510450363159,
+            "size_mm": 12.0,
+            "location": "Left Lower Lobe"
+        },
+        {
+            "nodule_id": "nodule_real_5",
+            "centroid": [
+                46,
+                226,
+                373
+            ],
+            "bounding_box": [
+                [
+                    44,
+                    223,
+                    371
+                ],
+                [
+                    48,
+                    229,
+                    376
+                ]
+            ],
+            "confidence": 0.5555664896965027,
+            "size_mm": 12.0,
+            "location": "Right Lower Lobe"
+        },
+        {
+            "nodule_id": "nodule_real_6",
+            "centroid": [
+                53,
+                122,
+                319
+            ],
+            "bounding_box": [
+                [
+                    51,
+                    120,
+                    317
+                ],
+                [
+                    55,
+                    125,
+                    322
+                ]
+            ],
+            "confidence": 0.5542454719543457,
+            "size_mm": 12.0,
+            "location": "Right Lower Lobe"
+        },
+        {
+            "nodule_id": "nodule_real_7",
+            "centroid": [
+                87,
+                235,
+                294
+            ],
+            "bounding_box": [
+                [
+                    85,
+                    232,
+                    292
+                ],
+                [
+                    90,
+                    238,
+                    297
+                ]
+            ],
+            "confidence": 0.5088399052619934,
+            "size_mm": 15.0,
+            "location": "Right Upper Lobe"
+        },
+        {
+            "nodule_id": "nodule_real_8",
+            "centroid": [
+                86,
+                131,
+                361
+            ],
+            "bounding_box": [
+                [
+                    82,
+                    125,
+                    356
+                ],
+                [
+                    91,
+                    137,
+                    367
+                ]
+            ],
+            "confidence": 0.49799492955207825,
+            "size_mm": 27.0,
+            "location": "Right Upper Lobe"
+        },
+        {
+            "nodule_id": "nodule_real_9",
+            "centroid": [
+                2,
+                196,
+                415
+            ],
+            "bounding_box": [
+                [
+                    0,
+                    193,
+                    412
+                ],
+                [
+                    4,
+                    200,
+                    418
+                ]
+            ],
+            "confidence": 0.4450608193874359,
+            "size_mm": 12.0,
+            "location": "Right Lower Lobe"
+        },
+        {
+            "nodule_id": "nodule_real_10",
+            "centroid": [
+                66,
+                191,
+                324
+            ],
+            "bounding_box": [
+                [
+                    64,
+                    188,
+                    321
+                ],
+                [
+                    68,
+                    194,
+                    327
+                ]
+            ],
+            "confidence": 0.36243802309036255,
+            "size_mm": 12.0,
+            "location": "Right Lower Lobe"
+        },
+        {
+            "nodule_id": "nodule_real_11",
+            "centroid": [
+                50,
+                347,
+                329
+            ],
+            "bounding_box": [
+                [
+                    48,
+                    345,
+                    327
+                ],
+                [
+                    52,
+                    350,
+                    331
+                ]
+            ],
+            "confidence": 0.29409319162368774,
+            "size_mm": 12.0,
+            "location": "Right Lower Lobe"
+        },
+        {
+            "nodule_id": "nodule_real_12",
+            "centroid": [
+                53,
+                124,
+                119
+            ],
+            "bounding_box": [
+                [
+                    51,
+                    121,
+                    116
+                ],
+                [
+                    56,
+                    127,
+                    122
+                ]
+            ],
+            "confidence": 0.23002445697784424,
+            "size_mm": 15.0,
+            "location": "Left Lower Lobe"
+        },
+        {
+            "nodule_id": "nodule_real_13",
+            "centroid": [
+                1,
+                259,
+                427
+            ],
+            "bounding_box": [
+                [
+                    0,
+                    256,
+                    424
+                ],
+                [
+                    3,
+                    262,
+                    430
+                ]
+            ],
+            "confidence": 0.21710313856601715,
+            "size_mm": 9.0,
+            "location": "Right Lower Lobe"
+        },
+        {
+            "nodule_id": "nodule_real_14",
+            "centroid": [
+                0,
+                295,
+                69
+            ],
+            "bounding_box": [
+                [
+                    0,
+                    293,
+                    67
+                ],
+                [
+                    1,
+                    298,
+                    72
+                ]
+            ],
+            "confidence": 0.2114724963903427,
+            "size_mm": 4.88,
+            "location": "Left Lower Lobe"
+        },
+        {
+            "nodule_id": "nodule_real_15",
+            "centroid": [
+                1,
+                261,
+                116
+            ],
+            "bounding_box": [
+                [
+                    0,
+                    258,
+                    114
+                ],
+                [
+                    2,
+                    264,
+                    119
+                ]
+            ],
+            "confidence": 0.2047794759273529,
+            "size_mm": 6.0,
+            "location": "Left Lower Lobe"
+        },
+        {
+            "nodule_id": "nodule_real_16",
+            "centroid": [
+                66,
+                257,
+                288
+            ],
+            "bounding_box": [
+                [
+                    58,
+                    245,
+                    276
+                ],
+                [
+                    75,
+                    270,
+                    301
+                ]
+            ],
+            "confidence": 0.18523655831813812,
+            "size_mm": 51.0,
+            "location": "Right Lower Lobe"
+        },
+        {
+            "nodule_id": "nodule_real_17",
+            "centroid": [
+                118,
+                132,
+                399
+            ],
+            "bounding_box": [
+                [
+                    114,
+                    126,
+                    394
+                ],
+                [
+                    123,
+                    138,
+                    405
+                ]
+            ],
+            "confidence": 0.15774399042129517,
+            "size_mm": 27.0,
+            "location": "Right Upper Lobe"
+        }
+    ]
+}

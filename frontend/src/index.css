@@ -109,3 +109,14 @@ body {
   left: 50%;
 }
 
+@keyframes progress-loading {
+  0% { left: -100%; }
+  100% { left: 100%; }
+}
+
+.animate-progress-loading {
+  position: absolute;
+  animation: progress-loading 1.5s infinite linear;
+  width: 100%;
+}
+

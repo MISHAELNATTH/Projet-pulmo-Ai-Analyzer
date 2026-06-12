@@ -53,35 +53,72 @@ async def upload_dicom_files(
                 detail="Failed to save uploaded files"
             )
              
-        # 2. Read first file to extract patient metadata
-        try:
-            first_ds = pydicom.dcmread(temp_filepaths[0])
-        except Exception as e:
+        # 2. Read files to extract patient metadata
+        # Try to find a file that contains patient metadata (like PatientName or PatientID)
+        first_ds = None
+        sex = "O"
+        age = 0
+        study_date = None
+        orig_patient_id = ""
+        orig_patient_name = ""
+        
+        # Scan through the cached files to find patient metadata
+        for temp_path in temp_filepaths:
+            try:
+                ds = pydicom.dcmread(temp_path)
+                # Keep track of the first valid DICOM dataset just in case
+                if first_ds is None:
+                    first_ds = ds
+                
+                p_name = str(getattr(ds, "PatientName", "")).strip()
+                p_id = str(getattr(ds, "PatientID", "")).strip()
+                
+                if p_name or p_id:
+                    # Found a slice with metadata! Let's extract everything from here.
+                    first_ds = ds
+                    orig_patient_name = p_name
+                    orig_patient_id = p_id
+                    sex = getattr(ds, "PatientSex", "O")
+                    age = dicom_service.parse_patient_age(ds)
+                    study_date_raw = getattr(ds, "StudyDate", None)
+                    if study_date_raw:
+                        try:
+                            study_date = datetime.strptime(study_date_raw, "%Y%m%d").date()
+                        except Exception:
+                            pass
+                    break
+            except Exception:
+                continue
+                
+        # If we didn't find any file with patient name/ID, fall back to extracting from the first valid file
+        if not orig_patient_name and not orig_patient_id and first_ds is not None:
+            orig_patient_name = str(getattr(first_ds, "PatientName", "")).strip()
+            orig_patient_id = str(getattr(first_ds, "PatientID", "")).strip()
+            sex = getattr(first_ds, "PatientSex", "O")
+            age = dicom_service.parse_patient_age(first_ds)
+            study_date_raw = getattr(first_ds, "StudyDate", None)
+            if study_date_raw:
+                try:
+                    study_date = datetime.strptime(study_date_raw, "%Y%m%d").date()
+                except Exception:
+                    pass
+        
+        if first_ds is None:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid DICOM file format: {e}"
+                detail="No valid DICOM files found in the upload."
             )
             
-        sex = getattr(first_ds, "PatientSex", "O")
-        age = dicom_service.parse_patient_age(first_ds)
-        study_date_raw = getattr(first_ds, "StudyDate", None)
-        
-        study_date = None
-        if study_date_raw:
-            try:
-                study_date = datetime.strptime(study_date_raw, "%Y%m%d").date()
-            except Exception:
-                pass
-        
-        # 3. Generate secure, unique pseudonymized ID based on original attributes
-        orig_patient_id = getattr(first_ds, "PatientID", "")
-        orig_patient_name = str(getattr(first_ds, "PatientName", ""))
-        
         # Format name for standard rendering (e.g., DOE^JOHN -> DOE, JOHN)
         clean_patient_name = orig_patient_name.replace("^", ", ").strip()
         if clean_patient_name.endswith(","):
             clean_patient_name = clean_patient_name[:-1].strip()
+            
+        sex = str(sex).strip().upper()
+        if sex not in ["M", "F", "O"]:
+            sex = "O"
         
+        # 3. Generate secure, unique pseudonymized ID based on original attributes
         if orig_patient_id:
             patient_hash = hashlib.sha256(f"{orig_patient_id}_{orig_patient_name}".encode()).hexdigest()[:12]
             pseudonym_id = f"PATIENT_{patient_hash}"
