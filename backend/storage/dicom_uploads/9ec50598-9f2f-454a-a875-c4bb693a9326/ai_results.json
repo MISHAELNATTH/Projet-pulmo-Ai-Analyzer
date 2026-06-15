@@ -1,26 +1,31 @@
 {
     "status": "completed",
     "model_version": "MONAI RetinaNet v0.6.9 (CPU)",
-    "inference_time_ms": 885812,
+    "inference_time_ms": 39764,
     "nodules": [
         {
             "nodule_id": "nodule_1",
             "centroid": [
-                0,
+                133,
                 190,
                 260
             ],
             "bounding_box": [
                 [
-                    0,
+                    131,
                     166,
                     236
                 ],
                 [
-                    0,
+                    135,
                     214,
                     284
                 ]
+            ],
+            "world_centroid": [
+                11.91,
+                -49.63,
+                -100.22
             ],
             "confidence": 0.894,
             "size_mm": 14.2,

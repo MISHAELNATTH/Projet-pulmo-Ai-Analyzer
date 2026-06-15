@@ -162,7 +162,7 @@ export const InteractiveViewer: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen w-screen flex flex-col bg-[#0B0E14] text-on-background antialiased font-body-md overflow-hidden">
+    <div className="h-screen w-screen flex flex-col bg-[#0B0E14] text-on-background antialiased font-body-md overflow-hidden">
       {/* Full Width TopNavBar */}
       <header className="h-16 bg-surface-dim/80 backdrop-blur-md border-b border-[#30363D] flex justify-between items-center px-4 fixed top-0 left-0 w-full z-40">
         <div className="flex items-center space-x-3 text-mono-data">
@@ -187,7 +187,7 @@ export const InteractiveViewer: React.FC = () => {
         </div>
       </header>
 
-      <div className="flex flex-1 pt-16 h-[calc(100vh-4rem)]">
+      <div className="flex flex-1 pt-16 h-full overflow-hidden">
         {/* SideNavBar */}
         <Sidebar activeTab="viewer" />
 
@@ -321,24 +321,36 @@ export const InteractiveViewer: React.FC = () => {
 
             {/* 2D Slices Thumbnail Strip */}
             <div className="h-24 flex gap-2 overflow-x-auto pb-2 custom-scrollbar shrink-0">
-              {Array.from({ length: sliceCount }, (_, index) => (
-                <div
-                  key={index}
-                  className={`min-w-[80px] h-full rounded border-2 transition-all cursor-pointer bg-black/40 overflow-hidden relative ${
-                    activeSliceIndex === index ? 'border-primary scale-[0.98]' : 'border-[#30363D] hover:border-primary/50'
-                  }`}
-                  onClick={() => setActiveSliceIndex(index)}
-                >
-                  <img
-                    alt={`Slice ${index}`}
-                    className="w-full h-full object-cover opacity-60 hover:opacity-100"
-                    src={lungCtScan}
-                  />
-                  <span className="absolute bottom-1 right-1 text-[9px] font-mono bg-black/70 px-1 rounded text-on-surface">
-                    {index + 1}
-                  </span>
-                </div>
-              ))}
+              {(() => {
+                const maxThumbnails = 15;
+                const step = Math.max(1, Math.floor(sliceCount / maxThumbnails));
+                const indices: number[] = [];
+                for (let i = 0; i < sliceCount; i += step) {
+                  indices.push(i);
+                }
+                if (indices.length > 0 && indices[indices.length - 1] !== sliceCount - 1) {
+                  indices.push(sliceCount - 1);
+                }
+                
+                return indices.map((index) => (
+                  <div
+                    key={index}
+                    className={`min-w-[80px] h-full rounded border-2 transition-all cursor-pointer bg-black/40 overflow-hidden relative ${
+                      activeSliceIndex === index ? 'border-primary scale-[0.98]' : 'border-[#30363D] hover:border-primary/50'
+                    }`}
+                    onClick={() => setActiveSliceIndex(index)}
+                  >
+                    <img
+                      alt={`Slice ${index}`}
+                      className="w-full h-full object-cover opacity-60 hover:opacity-100"
+                      src={lungCtScan}
+                    />
+                    <span className="absolute bottom-1 right-1 text-[9px] font-mono bg-black/70 px-1 rounded text-on-surface">
+                      {index + 1}
+                    </span>
+                  </div>
+                ));
+              })()}
             </div>
           </div>
 

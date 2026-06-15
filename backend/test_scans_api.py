@@ -51,6 +51,7 @@ def create_mock_dicom(filename="mock_slice.dcm", name="DOE^TEST", pid="TEST-MRN-
     ds.RescaleIntercept = "-1024.0" # HU intercept
     ds.SOPClassUID = "1.2.840.10008.5.1.4.1.1.7"
     ds.SOPInstanceUID = "1.2.840.10008.5.1.4.1.1.7.1"
+    ds.SeriesInstanceUID = "1.2.840.10008.5.1.4.1.1.7.2"
     
     # 16x16 pixel array containing some lung-like values
     pixels = np.zeros((16, 16), dtype=np.uint16)

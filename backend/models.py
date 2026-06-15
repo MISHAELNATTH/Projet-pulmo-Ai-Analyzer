@@ -43,6 +43,7 @@ class Scan(Base):
     study_date = Column(Date, nullable=True)
     status = Column(String, default="pending") # pending, processing, completed, failed
     dicom_folder_path = Column(String, nullable=False)
+    series_instance_uid = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     # Relationships

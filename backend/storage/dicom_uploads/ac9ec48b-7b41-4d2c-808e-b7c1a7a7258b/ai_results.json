@@ -1,0 +1,30 @@
+{
+    "status": "completed",
+    "model_version": "MONAI RetinaNet v0.6.9 (CPU)",
+    "inference_time_ms": 29952,
+    "nodules": [
+        {
+            "nodule_id": "nodule_real_1",
+            "centroid": [
+                69,
+                254,
+                255
+            ],
+            "bounding_box": [
+                [
+                    44,
+                    199,
+                    201
+                ],
+                [
+                    94,
+                    310,
+                    310
+                ]
+            ],
+            "confidence": 0.33258745074272156,
+            "size_mm": 77.7,
+            "location": "Left Upper Lobe"
+        }
+    ]
+}

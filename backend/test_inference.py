@@ -40,6 +40,9 @@ def create_dummy_scan(folder_path="dummy_scan"):
         ds.RescaleIntercept = "-1024.0"
         ds.SOPClassUID = "1.2.840.10008.5.1.4.1.1.7"
         ds.SOPInstanceUID = f"1.2.840.10008.5.1.4.1.1.7.{idx}"
+        ds.SeriesInstanceUID = "1.2.840.10008.5.1.4.1.1.7.3"
+        ds.ImagePositionPatient = [float(idx * 0.8), float(idx * 1.2), float(idx * 1.5)]
+        ds.ImageOrientationPatient = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0]
         
         # Simple simulated nodule signal in the middle slice
         pixels = np.zeros((16, 16), dtype=np.uint16)

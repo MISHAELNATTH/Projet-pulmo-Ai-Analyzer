@@ -87,7 +87,10 @@ async def upload_dicom_files(
                         except Exception:
                             pass
                     break
-            except Exception:
+            except Exception as e:
+                import traceback
+                print(f"[DEBUG] Error reading uploaded DICOM file {temp_path}: {e}")
+                traceback.print_exc()
                 continue
                 
         # If we didn't find any file with patient name/ID, fall back to extracting from the first valid file
@@ -145,20 +148,44 @@ async def upload_dicom_files(
         permanent_scan_dir = os.path.join(STORAGE_DIR, scan_id)
         os.makedirs(permanent_scan_dir, exist_ok=True)
         
+        series_instance_uid = ""
+        if temp_filepaths:
+            try:
+                ds_temp = pydicom.dcmread(temp_filepaths[0], stop_before_pixels=True)
+                series_instance_uid = str(getattr(ds_temp, "SeriesInstanceUID", ""))
+            except Exception as e:
+                print(f"Error reading SeriesInstanceUID from temp DICOM: {e}")
+        
         scan = models.Scan(
             id=scan_id,
             patient_id=patient.id,
             uploaded_by=current_user.id,
             study_date=study_date,
             status="pending",
-            dicom_folder_path=permanent_scan_dir
+            dicom_folder_path=permanent_scan_dir,
+            series_instance_uid=series_instance_uid
         )
         db.add(scan)
         db.commit()
         db.refresh(scan)
         
-        # 6. Run anonymization pipeline on all slices and save to permanent path
-        for idx, temp_filepath in enumerate(temp_filepaths):
+        # Sort temp_filepaths by physical Z coordinate (ImagePositionPatient[2]) in ascending order
+        temp_files_with_z = []
+        for path in temp_filepaths:
+            try:
+                ds_temp = pydicom.dcmread(path, stop_before_pixels=True)
+                ipp = getattr(ds_temp, "ImagePositionPatient", None)
+                # Fallback to InstanceNumber if ImagePositionPatient is missing or incomplete
+                z_pos = float(ipp[2]) if (ipp and len(ipp) > 2) else float(getattr(ds_temp, "InstanceNumber", 0))
+                temp_files_with_z.append((z_pos, path))
+            except Exception as e:
+                temp_files_with_z.append((0.0, path))
+                
+        temp_files_with_z.sort(key=lambda x: x[0])
+        sorted_temp_filepaths = [x[1] for x in temp_files_with_z]
+        
+        # 6. Run anonymization pipeline on all slices in sorted order and save to permanent path
+        for idx, temp_filepath in enumerate(sorted_temp_filepaths):
             output_filepath = os.path.join(permanent_scan_dir, f"slice_{idx:03d}.dcm")
             dicom_service.anonymize_dicom_file(temp_filepath, output_filepath, pseudonym_id)
             
@@ -184,6 +211,9 @@ async def upload_dicom_files(
             "status": scan.status
         }
         
+    except HTTPException as he:
+        db.rollback()
+        raise he
     except Exception as e:
         db.rollback()
         raise HTTPException(

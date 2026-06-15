@@ -1,0 +1,142 @@
+{
+    "status": "completed",
+    "model_version": "MONAI RetinaNet v0.6.9 (CPU)",
+    "inference_time_ms": 32745,
+    "nodules": [
+        {
+            "nodule_id": "nodule_real_1",
+            "centroid": [
+                87,
+                325,
+                369
+            ],
+            "bounding_box": [
+                [
+                    84,
+                    318,
+                    362
+                ],
+                [
+                    90,
+                    332,
+                    376
+                ]
+            ],
+            "raw_centroid": [
+                42.25,
+                69.57,
+                53.01
+            ],
+            "raw_bounding_box": [
+                [
+                    40.75,
+                    66.88,
+                    50.28
+                ],
+                [
+                    43.74,
+                    72.26,
+                    55.73
+                ]
+            ],
+            "world_centroid": [
+                99.4,
+                28.6,
+                -232.25
+            ],
+            "confidence": 0.955763578414917,
+            "size_mm": 15.0,
+            "location": "Right Upper Lobe"
+        },
+        {
+            "nodule_id": "nodule_real_2",
+            "centroid": [
+                84,
+                353,
+                365
+            ],
+            "bounding_box": [
+                [
+                    81,
+                    346,
+                    358
+                ],
+                [
+                    87,
+                    361,
+                    372
+                ]
+            ],
+            "raw_centroid": [
+                40.81,
+                58.93,
+                54.69
+            ],
+            "raw_bounding_box": [
+                [
+                    39.32,
+                    56.19,
+                    52.01
+                ],
+                [
+                    42.29,
+                    61.66,
+                    57.37
+                ]
+            ],
+            "world_centroid": [
+                96.11,
+                51.57,
+                -277.25
+            ],
+            "confidence": 0.7728393077850342,
+            "size_mm": 15.0,
+            "location": "Right Upper Lobe"
+        },
+        {
+            "nodule_id": "nodule_real_3",
+            "centroid": [
+                86,
+                338,
+                369
+            ],
+            "bounding_box": [
+                [
+                    83,
+                    330,
+                    361
+                ],
+                [
+                    90,
+                    347,
+                    378
+                ]
+            ],
+            "raw_centroid": [
+                41.93,
+                64.49,
+                52.75
+            ],
+            "raw_bounding_box": [
+                [
+                    40.22,
+                    61.28,
+                    49.57
+                ],
+                [
+                    43.64,
+                    67.7,
+                    55.93
+                ]
+            ],
+            "world_centroid": [
+                99.4,
+                39.27,
+                -132.25
+            ],
+            "confidence": 0.15423811972141266,
+            "size_mm": 17.5,
+            "location": "Right Upper Lobe"
+        }
+    ]
+}

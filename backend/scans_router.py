@@ -28,6 +28,23 @@ async def get_scans(
         if scan.dicom_folder_path and os.path.exists(scan.dicom_folder_path):
             slice_count = len(glob.glob(os.path.join(scan.dicom_folder_path, "*.dcm")))
             
+        # Check and dynamically populate series_instance_uid if empty
+        series_uid = scan.series_instance_uid
+        if not series_uid and scan.dicom_folder_path and os.path.exists(scan.dicom_folder_path):
+            slice_files = sorted(glob.glob(os.path.join(scan.dicom_folder_path, "*.dcm")))
+            if slice_files:
+                try:
+                    ds = pydicom.dcmread(slice_files[0], stop_before_pixels=True)
+                    series_uid = str(getattr(ds, "SeriesInstanceUID", ""))
+                    if series_uid:
+                        scan.series_instance_uid = series_uid
+                        db.commit()
+                except Exception as e:
+                    print(f"Error dynamically extracting SeriesInstanceUID: {e}")
+                    
+        # Explicitly print patient ID/pseudonym to SeriesInstanceUID mapping in console/terminal logs
+        print(f"[DICOM LOAD] Patient Pseudonym: {scan.patient.pseudonymized_id if scan.patient else 'Unknown'} | SeriesInstanceUID: {series_uid}")
+                    
         results.append({
             "id": scan.id,
             "patient_id": scan.patient_id,
@@ -39,6 +56,7 @@ async def get_scans(
             "study_date": scan.study_date.isoformat() if scan.study_date else None,
             "status": scan.status,
             "slice_count": slice_count,
+            "series_instance_uid": series_uid,
             "created_at": scan.created_at.isoformat()
         })
     return results
@@ -79,6 +97,21 @@ async def get_scan_metadata(
             detail="No DICOM slices found for this scan"
         )
         
+    # Check and dynamically populate series_instance_uid if empty
+    series_uid = scan.series_instance_uid
+    if not series_uid and slice_files:
+        try:
+            ds = pydicom.dcmread(slice_files[0], stop_before_pixels=True)
+            series_uid = str(getattr(ds, "SeriesInstanceUID", ""))
+            if series_uid:
+                scan.series_instance_uid = series_uid
+                db.commit()
+        except Exception as e:
+            print(f"Error dynamically extracting SeriesInstanceUID: {e}")
+            
+    # Explicitly print patient ID/pseudonym to SeriesInstanceUID mapping in console/terminal logs
+    print(f"[DICOM LOAD] SeriesInstanceUID for scan {scan_id}: {series_uid}")
+            
     try:
         ds = pydicom.dcmread(slice_files[0])
         rows = int(getattr(ds, "Rows", 512))
@@ -99,8 +132,47 @@ async def get_scan_metadata(
         except Exception:
             pass
             
+    # Project world centroid on the fly if missing in JSON nodules
+    if ai_result_data and "nodules" in ai_result_data:
+        updated_file = False
+        for nodule in ai_result_data["nodules"]:
+            if "world_centroid" not in nodule or nodule["world_centroid"] is None:
+                centroid = nodule.get("centroid", None)
+                if centroid and len(centroid) == 3 and slice_files:
+                    cz, cy, cx = centroid
+                    if 0 <= cz < len(slice_files):
+                        try:
+                            ds_slice = pydicom.dcmread(slice_files[cz], stop_before_pixels=True)
+                            ipp = [float(x) for x in getattr(ds_slice, "ImagePositionPatient", [0.0, 0.0, 0.0])]
+                            iop = [float(x) for x in getattr(ds_slice, "ImageOrientationPatient", [1.0, 0.0, 0.0, 0.0, 1.0, 0.0])]
+                            pixel_spacing_slice = [float(x) for x in getattr(ds_slice, "PixelSpacing", [0.703125, 0.703125])]
+                            
+                            dir_cos_col = np.array(iop[:3])
+                            dir_cos_row = np.array(iop[3:])
+                            centroid_phys = np.array(ipp) + cx * pixel_spacing_slice[1] * dir_cos_col + cy * pixel_spacing_slice[0] * dir_cos_row
+                            nodule["world_centroid"] = [round(float(centroid_phys[0]), 2), round(float(centroid_phys[1]), 2), round(float(centroid_phys[2]), 2)]
+                            updated_file = True
+                        except Exception as e:
+                            print(f"Error calculating world centroid on the fly: {e}")
+        if updated_file:
+            try:
+                with open(scan.ai_result.segmentation_mask_path, "w") as f:
+                    json.dump(ai_result_data, f, indent=4)
+            except Exception as e:
+                print(f"Error caching updated world_centroid inside results JSON: {e}")
+                
     # Fallback to DB fields if file reading failed
     if not ai_result_data and scan.ai_result:
+        try:
+            ipp = [float(x) for x in getattr(ds, "ImagePositionPatient", [0.0, 0.0, 0.0])]
+            iop = [float(x) for x in getattr(ds, "ImageOrientationPatient", [1.0, 0.0, 0.0, 0.0, 1.0, 0.0])]
+            dir_cos_col = np.array(iop[:3])
+            dir_cos_row = np.array(iop[3:])
+            centroid_phys = np.array(ipp) + 260 * pixel_spacing[1] * dir_cos_col + 190 * pixel_spacing[0] * dir_cos_row
+            mock_world = [round(float(centroid_phys[0]), 2), round(float(centroid_phys[1]), 2), round(float(centroid_phys[2]), 2)]
+        except Exception:
+            mock_world = None
+            
         ai_result_data = {
             "status": scan.status,
             "model_version": scan.ai_result.monai_model_version,
@@ -110,6 +182,7 @@ async def get_scan_metadata(
                     "nodule_id": "nodule_1",
                     "centroid": [slice_count // 2, 190, 260],
                     "bounding_box": [[0, 0, 0], [0, 0, 0]],
+                    "world_centroid": mock_world,
                     "confidence": scan.ai_result.max_confidence_score,
                     "size_mm": 14.2,
                     "location": "Upper Lobe"
@@ -128,6 +201,7 @@ async def get_scan_metadata(
         "dimensions": (rows, cols),
         "slice_thickness": slice_thickness,
         "pixel_spacing": pixel_spacing,
+        "series_instance_uid": series_uid,
         "status": scan.status,
         "ai_result": ai_result_data
     }

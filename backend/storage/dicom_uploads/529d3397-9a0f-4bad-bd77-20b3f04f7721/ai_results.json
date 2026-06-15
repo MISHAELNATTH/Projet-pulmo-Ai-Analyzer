@@ -1,0 +1,97 @@
+{
+    "status": "completed",
+    "model_version": "MONAI RetinaNet v0.6.9 (CPU)",
+    "inference_time_ms": 46521,
+    "nodules": [
+        {
+            "nodule_id": "nodule_real_1",
+            "centroid": [
+                352,
+                309,
+                142
+            ],
+            "bounding_box": [
+                [
+                    331,
+                    295,
+                    128
+                ],
+                [
+                    374,
+                    324,
+                    157
+                ]
+            ],
+            "raw_centroid": [
+                50.79,
+                75.29,
+                137.82
+            ],
+            "raw_bounding_box": [
+                [
+                    47.7,
+                    69.83,
+                    132.38
+                ],
+                [
+                    53.88,
+                    80.76,
+                    143.25
+                ]
+            ],
+            "world_centroid": [
+                -91.06,
+                10.27,
+                -77.37
+            ],
+            "confidence": 0.9819996356964111,
+            "size_mm": 53.75,
+            "location": "Left Upper Lobe"
+        },
+        {
+            "nodule_id": "nodule_real_2",
+            "centroid": [
+                194,
+                330,
+                110
+            ],
+            "bounding_box": [
+                [
+                    181,
+                    321,
+                    101
+                ],
+                [
+                    208,
+                    340,
+                    120
+                ]
+            ],
+            "raw_centroid": [
+                28.08,
+                67.51,
+                149.93
+            ],
+            "raw_bounding_box": [
+                [
+                    26.1,
+                    64.02,
+                    146.42
+                ],
+                [
+                    30.06,
+                    71.0,
+                    153.45
+                ]
+            ],
+            "world_centroid": [
+                -113.56,
+                25.03,
+                -176.12
+            ],
+            "confidence": 0.9322439432144165,
+            "size_mm": 33.75,
+            "location": "Left Lower Lobe"
+        }
+    ]
+}

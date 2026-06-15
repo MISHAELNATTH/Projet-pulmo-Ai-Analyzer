@@ -1,122 +1,119 @@
 {
     "status": "completed",
     "model_version": "MONAI RetinaNet v0.6.9 (CPU)",
-    "inference_time_ms": 992433,
+    "inference_time_ms": 31106,
     "nodules": [
         {
             "nodule_id": "nodule_real_1",
             "centroid": [
-                93,
-                203,
-                160
+                49,
+                349,
+                163
             ],
             "bounding_box": [
                 [
-                    88,
-                    197,
+                    44,
+                    340,
                     154
                 ],
                 [
-                    98,
-                    210,
-                    167
+                    55,
+                    358,
+                    172
                 ]
             ],
-            "confidence": 0.9894634485244751,
-            "size_mm": 30.0,
-            "location": "Left Upper Lobe"
+            "confidence": 0.9310891628265381,
+            "size_mm": 33.0,
+            "location": "Left Lower Lobe",
+            "world_centroid": [
+                -90.33,
+                -142.19,
+                -328.2
+            ]
         },
         {
             "nodule_id": "nodule_real_2",
             "centroid": [
-                91,
-                103,
-                364
+                90,
+                409,
+                147
             ],
             "bounding_box": [
                 [
                     86,
-                    97,
-                    358
+                    402,
+                    140
                 ],
                 [
-                    96,
-                    110,
-                    371
+                    94,
+                    417,
+                    154
                 ]
             ],
-            "confidence": 0.8334116339683533,
-            "size_mm": 30.0,
-            "location": "Right Upper Lobe"
+            "confidence": 0.9157119989395142,
+            "size_mm": 24.0,
+            "location": "Left Upper Lobe",
+            "world_centroid": [
+                -105.96,
+                -83.6,
+                -541.2
+            ]
         },
         {
             "nodule_id": "nodule_real_3",
             "centroid": [
-                52,
-                203,
-                279
-            ],
-            "bounding_box": [
-                [
-                    46,
-                    194,
-                    270
-                ],
-                [
-                    59,
-                    213,
-                    289
-                ]
-            ],
-            "confidence": 0.4759943187236786,
-            "size_mm": 39.0,
-            "location": "Right Lower Lobe"
-        },
-        {
-            "nodule_id": "nodule_real_4",
-            "centroid": [
-                91,
-                103,
-                149
+                90,
+                408,
+                361
             ],
             "bounding_box": [
                 [
                     86,
-                    97,
-                    143
+                    401,
+                    354
                 ],
                 [
-                    96,
-                    110,
-                    156
+                    94,
+                    416,
+                    368
                 ]
             ],
-            "confidence": 0.18563096225261688,
-            "size_mm": 30.0,
-            "location": "Left Upper Lobe"
+            "confidence": 0.8204845190048218,
+            "size_mm": 24.0,
+            "location": "Right Upper Lobe",
+            "world_centroid": [
+                103.03,
+                -84.57,
+                -541.2
+            ]
         },
         {
-            "nodule_id": "nodule_real_5",
+            "nodule_id": "nodule_real_4",
             "centroid": [
-                50,
-                163,
-                346
+                93,
+                306,
+                348
             ],
             "bounding_box": [
                 [
-                    45,
-                    156,
-                    339
+                    88,
+                    298,
+                    340
                 ],
                 [
-                    55,
-                    170,
-                    354
+                    98,
+                    315,
+                    357
                 ]
             ],
-            "confidence": 0.1638367772102356,
+            "confidence": 0.334975928068161,
             "size_mm": 30.0,
-            "location": "Right Lower Lobe"
+            "location": "Right Upper Lobe",
+            "world_centroid": [
+                90.33,
+                -184.18,
+                -526.2
+            ]
         }
     ]
 }

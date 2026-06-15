@@ -1,0 +1,52 @@
+{
+    "status": "completed",
+    "model_version": "MONAI RetinaNet v0.6.9 (CPU)",
+    "inference_time_ms": 36909,
+    "nodules": [
+        {
+            "nodule_id": "nodule_real_1",
+            "centroid": [
+                188,
+                248,
+                374
+            ],
+            "bounding_box": [
+                [
+                    178,
+                    235,
+                    362
+                ],
+                [
+                    199,
+                    261,
+                    387
+                ]
+            ],
+            "raw_centroid": [
+                49.37,
+                98.43,
+                51.02
+            ],
+            "raw_bounding_box": [
+                [
+                    46.68,
+                    93.71,
+                    46.32
+                ],
+                [
+                    52.06,
+                    103.15,
+                    55.73
+                ]
+            ],
+            "world_centroid": [
+                58.66,
+                14.39,
+                -86.25
+            ],
+            "confidence": 0.9960857629776001,
+            "size_mm": 26.25,
+            "location": "Right Upper Lobe"
+        }
+    ]
+}

@@ -34,6 +34,24 @@ app.add_middleware(
 def startup_event():
     os.makedirs("./temp_uploads", exist_ok=True)
     os.makedirs("./storage/dicom_uploads", exist_ok=True)
+    
+    # Run database migrations for SQLite automatically
+    import sqlite3
+    db_path = "./pneumoguard.db"
+    if os.path.exists(db_path):
+        try:
+            conn = sqlite3.connect(db_path)
+            cursor = conn.cursor()
+            cursor.execute("PRAGMA table_info(scans);")
+            columns = [row[1] for row in cursor.fetchall()]
+            if "series_instance_uid" not in columns:
+                cursor.execute("ALTER TABLE scans ADD COLUMN series_instance_uid VARCHAR;")
+                conn.commit()
+                print("[DATABASE] Migrated: Added series_instance_uid column to scans table.")
+        except Exception as e:
+            print(f"[DATABASE] Migration error: {e}")
+        finally:
+            conn.close()
 
 @app.get("/")
 async def root():
