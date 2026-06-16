@@ -46,7 +46,11 @@
             ],
             "confidence": 0.9819996356964111,
             "size_mm": 53.75,
-            "location": "Left Upper Lobe"
+            "location": "Left Upper Lobe",
+            "comp": "Solid",
+            "margin": "Spiculated",
+            "lungRads": "4B - Very Suspicious",
+            "notes": "Nodule detected in the Left Upper Lobe. Measures 53.8 mm. Margins appear spiculated. Composition is Solid. Recommend chest CT with contrast, PET/CT, and/or tissue sampling (biopsy)."
         },
         {
             "nodule_id": "nodule_real_2",
@@ -91,7 +95,11 @@
             ],
             "confidence": 0.9322439432144165,
             "size_mm": 33.75,
-            "location": "Left Lower Lobe"
+            "location": "Left Lower Lobe",
+            "comp": "Solid",
+            "margin": "Spiculated",
+            "lungRads": "4B - Very Suspicious",
+            "notes": "Nodule detected in the Left Lower Lobe. Measures 33.8 mm. Margins appear spiculated. Composition is Solid. Recommend chest CT with contrast, PET/CT, and/or tissue sampling (biopsy)."
         }
     ]
 }

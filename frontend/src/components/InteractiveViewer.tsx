@@ -15,6 +15,7 @@ export const InteractiveViewer: React.FC = () => {
     patientName?: string;
     mrn?: string;
     scanId?: string;
+    activeSliceIndex?: number;
   };
 
   const [scanId, setScanId] = useState<string | undefined>(stateFromLocation.scanId);
@@ -55,7 +56,14 @@ export const InteractiveViewer: React.FC = () => {
   const [selectedNoduleId, setSelectedNoduleId] = useState<string | null>(null);
 
   // State variables for interactive viewport
-  const [activeSliceIndex, setActiveSliceIndex] = useState(0);
+  const [activeSliceIndex, setActiveSliceIndex] = useState(stateFromLocation.activeSliceIndex ?? 0);
+
+  // Sync activeSliceIndex when navigation state changes
+  useEffect(() => {
+    if (stateFromLocation.activeSliceIndex !== undefined) {
+      setActiveSliceIndex(stateFromLocation.activeSliceIndex);
+    }
+  }, [stateFromLocation.activeSliceIndex]);
   const [aiOverlayActive, setAiOverlayActive] = useState(true);
   const [windowPreset, setWindowPreset] = useState<'LUNG' | 'SOFT'>('LUNG');
   const [activeTool, setActiveTool] = useState<'pan' | 'zoom' | 'contrast' | 'none'>('none');
@@ -149,7 +157,7 @@ export const InteractiveViewer: React.FC = () => {
   const selectedNodule = nodules.find(n => n.nodule_id === selectedNoduleId) || (nodules.length > 0 ? nodules[0] : null);
 
   const handleFinalDiagnosis = () => {
-    navigate('/reports', { state: { patientName, mrn } });
+    navigate('/reports', { state: { patientName, mrn, scanId } });
   };
 
   const handleWheelScroll = (e: React.WheelEvent) => {

@@ -45,6 +45,14 @@ async def get_scans(
         # Explicitly print patient ID/pseudonym to SeriesInstanceUID mapping in console/terminal logs
         print(f"[DICOM LOAD] Patient Pseudonym: {scan.patient.pseudonymized_id if scan.patient else 'Unknown'} | SeriesInstanceUID: {series_uid}")
                     
+        ai_result_data = None
+        if scan.ai_result and scan.ai_result.segmentation_mask_path and os.path.exists(scan.ai_result.segmentation_mask_path):
+            try:
+                with open(scan.ai_result.segmentation_mask_path, "r") as f:
+                    ai_result_data = json.load(f)
+            except Exception:
+                pass
+
         results.append({
             "id": scan.id,
             "patient_id": scan.patient_id,
@@ -57,7 +65,8 @@ async def get_scans(
             "status": scan.status,
             "slice_count": slice_count,
             "series_instance_uid": series_uid,
-            "created_at": scan.created_at.isoformat()
+            "created_at": scan.created_at.isoformat(),
+            "ai_result": ai_result_data
         })
     return results
 
@@ -345,6 +354,63 @@ async def confirm_scan_metadata(
         "patient_name": patient.patient_name,
         "patient_pseudonym": patient.pseudonymized_id
     }
+
+class NoduleReport(BaseModel):
+    nodule_id: str
+    comp: str
+    margin: str
+    lungRads: str
+    notes: str
+
+class SaveReportPayload(BaseModel):
+    nodules: list[NoduleReport]
+
+@router.post("/{scan_id}/report")
+async def save_scan_report(
+    scan_id: str,
+    payload: SaveReportPayload,
+    current_user: models.User = Depends(auth.require_radiologist),
+    db: Session = Depends(get_db)
+):
+    """Save the signed structured report, updating the ai_results.json and scan status."""
+    scan = db.query(models.Scan).filter(models.Scan.id == scan_id).first()
+    if not scan:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Scan not found"
+        )
+        
+    scan.status = "signed"
+    db.commit()
+    
+    # Update AI results file on disk
+    if scan.ai_result and scan.ai_result.segmentation_mask_path and os.path.exists(scan.ai_result.segmentation_mask_path):
+        try:
+            with open(scan.ai_result.segmentation_mask_path, "r") as f:
+                ai_data = json.load(f)
+            
+            # Map nodule reports
+            updated = False
+            for report in payload.nodules:
+                for nodule in ai_data.get("nodules", []):
+                    if nodule.get("nodule_id") == report.nodule_id:
+                        nodule["comp"] = report.comp
+                        nodule["margin"] = report.margin
+                        nodule["lungRads"] = report.lungRads
+                        nodule["notes"] = report.notes
+                        updated = True
+                        
+            if updated:
+                with open(scan.ai_result.segmentation_mask_path, "w") as f:
+                    json.dump(ai_data, f, indent=4)
+        except Exception as e:
+            print(f"Error saving report data to JSON: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to write report on disk: {e}"
+            )
+            
+    return {"message": "Report signed and locked successfully", "scan_id": scan_id}
 
 @router.delete("/{scan_id}", status_code=status.HTTP_200_OK)
 async def delete_scan(

@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import axios from 'axios';
 import { Sidebar } from './Sidebar';
 
 interface Record {
-  id: number;
+  id: string | number;
   date: string;
   time: string;
   name: string;
@@ -127,13 +128,99 @@ export const StudyArchive: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState<string>('Archived');
   
   // UI Interactive Drawer State
-  const [selectedRecordId, setSelectedRecordId] = useState<number | null>(null);
+  const [selectedRecordId, setSelectedRecordId] = useState<string | number | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
 
-  const selectedRecord = initialRecords.find((r) => r.id === selectedRecordId);
+  // Loaded database scans state
+  const [dbRecords, setDbRecords] = useState<Record[]>([]);
+
+  // Deleted initial records state (synced with dashboard)
+  const [deletedInitialIds, setDeletedInitialIds] = useState<number[]>(() => {
+    try {
+      const saved = localStorage.getItem('deletedInitialIds');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  useEffect(() => {
+    localStorage.setItem('deletedInitialIds', JSON.stringify(deletedInitialIds));
+  }, [deletedInitialIds]);
+
+  const fetchArchiveScans = () => {
+    const token = localStorage.getItem('token') || localStorage.getItem('access_token');
+    const headers = token ? { Authorization: `Bearer ${token}` } : {};
+
+    axios.get('http://localhost:8000/api/scans', { headers })
+      .then((response) => {
+        const mapped: Record[] = response.data.map((scan: any) => {
+          const dateObj = new Date(scan.created_at);
+          const dateStr = scan.study_date || dateObj.toISOString().split('T')[0];
+          const timeStr = dateObj.toTimeString().split(' ')[0];
+          
+          let finding = 'Clear';
+          let findingType: 'Nodule' | 'Clear' | 'Suspicious' = 'Clear';
+          let findingDetails = 'Clear';
+          
+          const nodules = scan.ai_result?.nodules || [];
+          if (nodules.length > 0) {
+            findingType = 'Nodule';
+            const sizes = nodules.map((n: any) => `${n.size_mm.toFixed(1)}mm`).join(', ');
+            finding = `${nodules.length} Nodule${nodules.length > 1 ? 's' : ''} (${sizes})`;
+            findingDetails = finding;
+          } else if (scan.status === 'failed') {
+            findingType = 'Suspicious';
+            finding = 'Error in AI';
+            findingDetails = 'Error in AI';
+          }
+
+          let status: 'Archived' | 'Flagged' | 'Signed' = 'Archived';
+          if (scan.status === 'signed') {
+            status = 'Signed';
+          } else if (scan.status === 'failed') {
+            status = 'Flagged';
+          }
+
+          return {
+            id: scan.id,
+            date: dateStr,
+            time: timeStr,
+            name: scan.patient_pseudonym || scan.patient_name || 'Unknown Patient',
+            mrn: `MRN: ${scan.id.substring(0, 8).toUpperCase()}`,
+            desc: 'CT CHEST W/O CONTRAST',
+            modality: 'CT',
+            finding,
+            findingDetails,
+            findingType,
+            status,
+            growthText: nodules.length > 0 
+              ? `AI segmented ${nodules.length} nodule(s). Max confidence: ${Math.round(scan.ai_result.max_confidence_score * 100)}%.` 
+              : 'No nodules detected by the AI pipeline.',
+            log: [
+              `> Fetching DICOM metadata...`,
+              `> AI Inference Status: ${scan.status}`,
+              `> Slice count: ${scan.slice_count}`,
+            ],
+          };
+        });
+        setDbRecords(mapped);
+      })
+      .catch((err) => console.error('Error fetching archive scans:', err));
+  };
+
+  useEffect(() => {
+    fetchArchiveScans();
+  }, []);
+
+  // Filter out deleted initial mock records
+  const activeInitialRecords = initialRecords.filter((r) => !deletedInitialIds.includes(r.id as number));
+  const allRecords = [...dbRecords, ...activeInitialRecords];
+
+  const selectedRecord = allRecords.find((r) => r.id === selectedRecordId);
 
   // Filter Logic
-  const filteredRecords = initialRecords.filter((record) => {
+  const filteredRecords = allRecords.filter((record) => {
     const matchesSearch =
       record.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       record.mrn.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -165,13 +252,54 @@ export const StudyArchive: React.FC = () => {
   };
 
   const handleQuickView = (record: Record, e: React.MouseEvent) => {
-    e.stopPropagation(); // Avoid triggering row selection drawer
-    navigate('/viewer', { state: { patientName: record.name, mrn: record.mrn.replace('MRN: ', 'MRN-') } });
+    e.stopPropagation(); 
+    const isRealScan = typeof record.id === 'string';
+    navigate('/viewer', { 
+      state: { 
+        patientName: record.name, 
+        mrn: record.mrn.replace('MRN: ', 'MRN-'),
+        scanId: isRealScan ? record.id : undefined 
+      } 
+    });
+  };
+
+  const handleDeleteRecord = async (record: Record, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!window.confirm(`Are you sure you want to delete the record for patient ${record.name}?`)) {
+      return;
+    }
+
+    if (selectedRecordId === record.id) {
+      setSelectedRecordId(null);
+      setDrawerOpen(false);
+    }
+
+    if (typeof record.id === 'number') {
+      setDeletedInitialIds((prev) => [...prev, record.id as number]);
+    } else {
+      const token = localStorage.getItem('token') || localStorage.getItem('access_token');
+      const headers = token ? { Authorization: `Bearer ${token}` } : {};
+
+      try {
+        await axios.delete(`http://localhost:8000/api/scans/${record.id}`, { headers });
+        fetchArchiveScans();
+      } catch (err: any) {
+        console.error('Failed to delete scan from archive:', err);
+        alert(`Failed to delete scan: ${err.response?.data?.detail || err.message}`);
+      }
+    }
   };
 
   const handleFinalizeReport = () => {
     if (selectedRecord) {
-      navigate('/reports', { state: { patientName: selectedRecord.name, mrn: selectedRecord.mrn.replace('MRN: ', 'MRN-') } });
+      const isRealScan = typeof selectedRecord.id === 'string';
+      navigate('/reports', { 
+        state: { 
+          patientName: selectedRecord.name, 
+          mrn: selectedRecord.mrn.replace('MRN: ', 'MRN-'),
+          scanId: isRealScan ? selectedRecord.id : undefined 
+        } 
+      });
     }
   };
 
@@ -189,7 +317,7 @@ export const StudyArchive: React.FC = () => {
             <span className="text-on-surface-variant font-mono-data text-body-sm">ARCHIVE VIEW</span>
             <span className="text-on-surface-variant font-mono-data text-body-sm opacity-40">•</span>
             <span className="text-on-surface-variant font-mono-data text-body-sm">
-              TOTAL RECORDS: {initialRecords.length}
+              TOTAL RECORDS: {allRecords.length}
             </span>
           </div>
         </div>
@@ -215,353 +343,348 @@ export const StudyArchive: React.FC = () => {
 
         {/* Main Content Area */}
         <main className="ml-sidebar-width flex-1 p-6 h-[calc(100vh-4rem)] flex flex-col gap-6 overflow-hidden">
-        {/* Header & Global Search */}
-        <section className="flex flex-col md:flex-row md:items-end justify-between gap-4">
-          <div>
-            <h1 className="text-display-lg font-display-lg text-on-surface">Study Archive</h1>
-            <p className="text-body-md font-body-md text-on-surface-variant">Historical PACS records and AI telemetry</p>
-          </div>
-          <div className="relative w-full max-w-md">
-            <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant">
-              search
-            </span>
-            <input
-              className="w-full bg-surface-container border border-outline-variant rounded-lg pl-10 pr-4 py-2 text-body-md focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all"
-              placeholder="Search Patient Name, MRN, or Accession..."
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-            />
-          </div>
-        </section>
-
-        {/* Advanced Filter Bar */}
-        <section className="glass-panel p-panel-padding rounded-xl flex flex-wrap items-center gap-4">
-          <div className="flex flex-col gap-1">
-            <label className="text-label-caps font-label-caps text-on-surface-variant uppercase">Date Range</label>
-            <select
-              className="bg-surface-container-highest border-none rounded-lg text-body-sm px-3 py-1.5 focus:ring-2 focus:ring-primary outline-none min-w-[140px]"
-              value={dateRange}
-              onChange={(e) => setDateRange(e.target.value)}
-            >
-              <option>Last 30 Days</option>
-              <option>Last 6 Months</option>
-              <option>Year to Date</option>
-              <option>Custom Range</option>
-            </select>
-          </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-label-caps font-label-caps text-on-surface-variant uppercase">Modality</label>
-            <div className="flex gap-1">
-              <button
-                className={`px-3 py-1.5 rounded-lg text-label-caps font-bold transition-all ${
-                  modality === 'ALL'
-                    ? 'bg-primary-container text-on-primary-container'
-                    : 'bg-surface-container-highest text-on-surface-variant hover:bg-surface-bright'
-                }`}
-                onClick={() => setModality('ALL')}
-              >
-                ALL
-              </button>
-              <button
-                className={`px-3 py-1.5 rounded-lg text-label-caps font-bold transition-all ${
-                  modality === 'CT'
-                    ? 'bg-primary-container text-on-primary-container'
-                    : 'bg-surface-container-highest text-on-surface-variant hover:bg-surface-bright'
-                }`}
-                onClick={() => setModality('CT')}
-              >
-                CT
-              </button>
-              <button
-                className={`px-3 py-1.5 rounded-lg text-label-caps font-bold transition-all ${
-                  modality === 'XR'
-                    ? 'bg-primary-container text-on-primary-container'
-                    : 'bg-surface-container-highest text-on-surface-variant hover:bg-surface-bright'
-                }`}
-                onClick={() => setModality('XR')}
-              >
-                XR
-              </button>
-              <button
-                className={`px-3 py-1.5 rounded-lg text-label-caps font-bold transition-all ${
-                  modality === 'MR'
-                    ? 'bg-primary-container text-on-primary-container'
-                    : 'bg-surface-container-highest text-on-surface-variant hover:bg-surface-bright'
-                }`}
-                onClick={() => setModality('MR')}
-              >
-                MR
-              </button>
+          {/* Header & Global Search */}
+          <section className="flex flex-col md:flex-row md:items-end justify-between gap-4">
+            <div>
+              <h1 className="text-display-lg font-display-lg text-on-surface">Study Archive</h1>
+              <p className="text-body-md font-body-md text-on-surface-variant">Historical PACS records and AI telemetry</p>
             </div>
-          </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-label-caps font-label-caps text-on-surface-variant uppercase">AI Finding</label>
-            <select
-              className="bg-surface-container-highest border-none rounded-lg text-body-sm px-3 py-1.5 focus:ring-2 focus:ring-primary outline-none min-w-[140px]"
-              value={findingType}
-              onChange={(e) => setFindingType(e.target.value)}
-            >
-              <option>All Findings</option>
-              <option>Nodule</option>
-              <option>Clear</option>
-              <option>Suspicious</option>
-            </select>
-          </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-label-caps font-label-caps text-on-surface-variant uppercase">Status</label>
-            <select
-              className="bg-surface-container-highest border-none rounded-lg text-body-sm px-3 py-1.5 focus:ring-2 focus:ring-primary outline-none min-w-[140px]"
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-            >
-              <option>Archived</option>
-              <option>Flagged</option>
-              <option>Signed</option>
-            </select>
-          </div>
-          <button
-            className="mt-auto mb-1 ml-auto flex items-center gap-2 text-primary hover:bg-primary/10 px-4 py-1.5 rounded-lg transition-colors cursor-pointer"
-            onClick={handleResetFilters}
-          >
-            <span className="material-symbols-outlined text-[20px]">filter_alt_off</span>
-            <span className="text-label-caps">RESET FILTERS</span>
-          </button>
-        </section>
-
-        {/* Study Results Table */}
-        <section className="flex-1 glass-panel rounded-xl overflow-hidden flex flex-col">
-          <div className="overflow-x-auto custom-scrollbar flex-1">
-            <table className="w-full text-left border-collapse min-w-[1000px]">
-              <thead>
-                <tr className="bg-surface-container-high border-b border-outline-variant sticky top-0 z-10">
-                  <th className="p-4 text-label-caps font-label-caps text-on-surface-variant uppercase tracking-wider">
-                    Date / Time
-                  </th>
-                  <th className="p-4 text-label-caps font-label-caps text-on-surface-variant uppercase tracking-wider">
-                    Patient & MRN
-                  </th>
-                  <th className="p-4 text-label-caps font-label-caps text-on-surface-variant uppercase tracking-wider">
-                    Study Description
-                  </th>
-                  <th className="p-4 text-label-caps font-label-caps text-on-surface-variant uppercase tracking-wider">
-                    Modality
-                  </th>
-                  <th className="p-4 text-label-caps font-label-caps text-on-surface-variant uppercase tracking-wider">
-                    AI Summary
-                  </th>
-                  <th className="p-4 text-label-caps font-label-caps text-on-surface-variant uppercase tracking-wider">
-                    Status
-                  </th>
-                  <th className="p-4 text-label-caps font-label-caps text-on-surface-variant uppercase tracking-wider text-right">
-                    Actions
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="text-mono-data font-mono-data divide-y divide-outline-variant/30">
-                {filteredRecords.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} className="p-8 text-center text-on-surface-variant font-mono-data">
-                      No archived studies match the current search or filters.
-                    </td>
-                  </tr>
-                ) : (
-                  filteredRecords.map((record) => (
-                    <tr
-                      key={record.id}
-                      className={`zebra-row group hover:bg-primary/5 transition-colors cursor-pointer ${
-                        selectedRecordId === record.id ? 'active-viewport-glow bg-primary/10' : ''
-                      }`}
-                      onClick={() => handleRowClick(record)}
-                    >
-                      <td className="p-4">
-                        <div className="flex flex-col">
-                          <span className="text-on-surface font-semibold">{record.date}</span>
-                          <span className="text-body-sm text-on-surface-variant opacity-60">{record.time}</span>
-                        </div>
-                      </td>
-                      <td className="p-4">
-                        <div className="flex flex-col">
-                          <span className="text-on-surface font-bold">{record.name}</span>
-                          <span className="text-body-sm text-primary font-mono">{record.mrn}</span>
-                        </div>
-                      </td>
-                      <td className="p-4 text-on-surface-variant">{record.desc}</td>
-                      <td className="p-4">
-                        <span className="bg-surface-container-highest px-2 py-0.5 rounded text-[10px] font-bold border border-outline-variant">
-                          {record.modality}
-                        </span>
-                      </td>
-                      <td className="p-4">
-                        <div className="flex items-center gap-2">
-                          <span
-                            className={`px-2 py-0.5 rounded-full text-[11px] flex items-center gap-1 ${
-                              record.findingType === 'Nodule'
-                                ? 'bg-error-container/20 text-error border border-error/30'
-                                : record.findingType === 'Suspicious'
-                                ? 'bg-tertiary-container/10 text-tertiary border border-tertiary/30'
-                                : 'bg-primary/10 text-primary border border-primary/30'
-                            }`}
-                          >
-                            <span
-                              className={`w-1.5 h-1.5 rounded-full ${
-                                record.findingType === 'Nodule'
-                                  ? 'bg-error animate-pulse'
-                                  : record.findingType === 'Suspicious'
-                                  ? 'bg-tertiary'
-                                  : 'bg-primary'
-                              }`}
-                            ></span>
-                            {record.finding}
-                          </span>
-                        </div>
-                      </td>
-                      <td className="p-4">
-                        <span className="text-on-surface-variant flex items-center gap-1.5">
-                          <span
-                            className={`material-symbols-outlined text-[16px] ${
-                              record.status === 'Flagged' ? 'text-error' : 'text-primary'
-                            }`}
-                          >
-                            {record.status === 'Flagged' ? 'flag' : 'inventory_2'}
-                          </span>
-                          {record.status}
-                        </span>
-                      </td>
-                      <td className="p-4 text-right">
-                        <div className="flex justify-end gap-2">
-                          <button
-                            className="p-2 hover:bg-primary-container/20 rounded-lg text-primary transition-colors cursor-pointer"
-                            title="Quick View"
-                            onClick={(e) => handleQuickView(record, e)}
-                          >
-                            <span className="material-symbols-outlined">visibility</span>
-                          </button>
-                          <button
-                            className="p-2 hover:bg-primary-container/20 rounded-lg text-primary transition-colors cursor-pointer"
-                            title="Download Report"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              alert(`Downloading DICOM / Report package for ${record.name}...`);
-                            }}
-                          >
-                            <span className="material-symbols-outlined">download</span>
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-
-          {/* Pagination Footer */}
-          <footer className="bg-surface-container border-t border-outline-variant p-4 flex flex-col sm:flex-row items-center justify-between gap-4">
-            <div className="text-body-sm text-on-surface-variant font-mono-data">
-              Showing <span className="text-on-surface font-bold">1 - {filteredRecords.length}</span> of{' '}
-              <span className="text-on-surface font-bold">{filteredRecords.length}</span> results
+            <div className="relative w-full max-w-md">
+              <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant">
+                search
+              </span>
+              <input
+                className="w-full bg-surface-container border border-outline-variant rounded-lg pl-10 pr-4 py-2 text-body-md focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all"
+                placeholder="Search Patient Name, MRN, or Accession..."
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
             </div>
-            <div className="flex items-center gap-2">
-              <button className="p-1.5 rounded text-on-surface-variant disabled:opacity-30 disabled:cursor-not-allowed" disabled>
-                <span className="material-symbols-outlined text-[20px]">first_page</span>
-              </button>
-              <button className="p-1.5 rounded text-on-surface-variant disabled:opacity-30 disabled:cursor-not-allowed" disabled>
-                <span className="material-symbols-outlined text-[20px]">chevron_left</span>
-              </button>
-              <div className="flex gap-1">
-                <button className="w-8 h-8 rounded flex items-center justify-center bg-primary text-on-primary font-bold text-body-sm">
-                  1
-                </button>
-              </div>
-              <button className="p-1.5 rounded text-on-surface-variant disabled:opacity-30 disabled:cursor-not-allowed" disabled>
-                <span className="material-symbols-outlined text-[20px]">chevron_right</span>
-              </button>
-              <button className="p-1.5 rounded text-on-surface-variant disabled:opacity-30 disabled:cursor-not-allowed" disabled>
-                <span className="material-symbols-outlined text-[20px]">last_page</span>
-              </button>
-            </div>
-            <div className="flex items-center gap-2 text-body-sm">
-              <span className="text-on-surface-variant">Rows per page:</span>
-              <select className="bg-transparent border-none focus:ring-0 text-on-surface font-bold cursor-pointer">
-                <option value="5">5</option>
-                <option value="10">10</option>
+          </section>
+
+          {/* Advanced Filter Bar */}
+          <section className="glass-panel p-panel-padding rounded-xl flex flex-wrap items-center gap-4">
+            <div className="flex flex-col gap-1">
+              <label className="text-label-caps font-label-caps text-on-surface-variant uppercase">Date Range</label>
+              <select
+                className="bg-surface-container-highest border-none rounded-lg text-body-sm px-3 py-1.5 focus:ring-2 focus:ring-primary outline-none min-w-[140px]"
+                value={dateRange}
+                onChange={(e) => setDateRange(e.target.value)}
+              >
+                <option>Last 30 Days</option>
+                <option>Last 6 Months</option>
+                <option>Year to Date</option>
+                <option>Custom Range</option>
               </select>
             </div>
-          </footer>
-        </section>
-      </main>
-
-      {/* Contextual AI Insights Drawer (Hidden by Default, toggleable) */}
-      <div
-        className={`fixed right-0 top-16 h-[calc(100%-4rem)] w-80 bg-surface-container-high/90 backdrop-blur-2xl border-l border-outline-variant shadow-2xl transition-transform duration-300 z-30 ${
-          drawerOpen ? 'translate-x-0' : 'translate-x-full'
-        }`}
-        id="aiDrawer"
-      >
-        <div className="flex flex-col p-panel-padding h-full">
-          <div className="flex justify-between items-center mb-6">
-            <div>
-              <h2 className="text-title-sm font-title-sm text-primary">Clinical Context</h2>
-              <p className="text-body-sm font-body-sm text-on-surface-variant">PACS-Integrated Reporting</p>
+            <div className="flex flex-col gap-1">
+              <label className="text-label-caps font-label-caps text-on-surface-variant uppercase">Modality</label>
+              <div className="flex gap-1">
+                <button
+                  className={`px-3 py-1.5 rounded-lg text-label-caps font-bold transition-all ${
+                    modality === 'ALL'
+                      ? 'bg-primary-container text-on-primary-container'
+                      : 'bg-surface-container-highest text-on-surface-variant hover:bg-surface-bright'
+                  }`}
+                  onClick={() => setModality('ALL')}
+                >
+                  ALL
+                </button>
+                <button
+                  className={`px-3 py-1.5 rounded-lg text-label-caps font-bold transition-all ${
+                    modality === 'CT'
+                      ? 'bg-primary-container text-on-primary-container'
+                      : 'bg-surface-container-highest text-on-surface-variant hover:bg-surface-bright'
+                  }`}
+                  onClick={() => setModality('CT')}
+                >
+                  CT
+                </button>
+                <button
+                  className={`px-3 py-1.5 rounded-lg text-label-caps font-bold transition-all ${
+                    modality === 'XR'
+                      ? 'bg-primary-container text-on-primary-container'
+                      : 'bg-surface-container-highest text-on-surface-variant hover:bg-surface-bright'
+                  }`}
+                  onClick={() => setModality('XR')}
+                >
+                  XR
+                </button>
+                <button
+                  className={`px-3 py-1.5 rounded-lg text-label-caps font-bold transition-all ${
+                    modality === 'MR'
+                      ? 'bg-primary-container text-on-primary-container'
+                      : 'bg-surface-container-highest text-on-surface-variant hover:bg-surface-bright'
+                  }`}
+                  onClick={() => setModality('MR')}
+                >
+                  MR
+                </button>
+              </div>
             </div>
-            <button 
-              className="text-on-surface-variant hover:text-primary cursor-pointer flex items-center justify-center" 
-              onClick={() => setDrawerOpen(false)}
+            <div className="flex flex-col gap-1">
+              <label className="text-label-caps font-label-caps text-on-surface-variant uppercase">AI Finding</label>
+              <select
+                className="bg-surface-container-highest border-none rounded-lg text-body-sm px-3 py-1.5 focus:ring-2 focus:ring-primary outline-none min-w-[140px]"
+                value={findingType}
+                onChange={(e) => setFindingType(e.target.value)}
+              >
+                <option>All Findings</option>
+                <option>Nodule</option>
+                <option>Clear</option>
+                <option>Suspicious</option>
+              </select>
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-label-caps font-label-caps text-on-surface-variant uppercase">Status</label>
+              <select
+                className="bg-surface-container-highest border-none rounded-lg text-body-sm px-3 py-1.5 focus:ring-2 focus:ring-primary outline-none min-w-[140px]"
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+              >
+                <option>Archived</option>
+                <option>Flagged</option>
+                <option>Signed</option>
+              </select>
+            </div>
+            <button
+              className="mt-auto px-4 py-2 hover:bg-surface-bright border border-outline-variant rounded-lg text-body-sm font-bold flex items-center gap-1.5 text-on-surface-variant cursor-pointer ml-auto"
+              onClick={handleResetFilters}
             >
-              <span className="material-symbols-outlined">close</span>
+              <span className="material-symbols-outlined text-[18px]">restart_alt</span>
+              Reset Filters
+            </button>
+          </section>
+
+          {/* Records Table */}
+          <section className="flex-1 bg-surface-container-low rounded-xl border border-outline-variant/30 flex flex-col overflow-hidden shadow-sm">
+            <div className="flex-1 overflow-y-auto custom-scrollbar">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="border-b border-outline-variant/30 text-label-caps font-label-caps text-on-surface-variant text-[11px] uppercase tracking-wider bg-surface-container-low sticky top-0 z-10">
+                    <th className="p-4">Date / Time</th>
+                    <th className="p-4">Patient & MRN</th>
+                    <th className="p-4">Study Description</th>
+                    <th className="p-4">Modality</th>
+                    <th className="p-4">AI Summary</th>
+                    <th className="p-4">Status</th>
+                    <th className="p-4 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-outline-variant/20">
+                  {filteredRecords.length === 0 ? (
+                    <tr>
+                      <td className="p-8 text-center text-on-surface-variant italic font-body-md" colSpan={7}>
+                        No records match the active search filters.
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredRecords.map((record) => (
+                      <tr
+                        key={record.id}
+                        className={`hover:bg-surface-variant/40 transition-colors cursor-pointer ${
+                          selectedRecordId === record.id ? 'bg-[#00D2C4]/5 border-l-2 border-[#00D2C4]' : ''
+                        }`}
+                        onClick={() => handleRowClick(record)}
+                      >
+                        <td className="p-4">
+                          <div className="flex flex-col">
+                            <span className="text-on-surface font-bold">{record.date}</span>
+                            <span className="text-body-sm text-on-surface-variant opacity-60">{record.time}</span>
+                          </div>
+                        </td>
+                        <td className="p-4">
+                          <div className="flex flex-col">
+                            <span className="text-on-surface font-bold">{record.name}</span>
+                            <span className="text-body-sm text-primary font-mono">{record.mrn}</span>
+                          </div>
+                        </td>
+                        <td className="p-4 text-on-surface-variant">{record.desc}</td>
+                        <td className="p-4">
+                          <span className="bg-surface-container-highest px-2 py-0.5 rounded text-[10px] font-bold border border-outline-variant">
+                            {record.modality}
+                          </span>
+                        </td>
+                        <td className="p-4">
+                          <div className="flex items-center gap-2">
+                            <span
+                              className={`px-2 py-0.5 rounded-full text-[11px] flex items-center gap-1 ${
+                                record.findingType === 'Nodule'
+                                  ? 'bg-error-container/20 text-error border border-error/30'
+                                  : record.findingType === 'Suspicious'
+                                  ? 'bg-tertiary-container/10 text-tertiary border border-tertiary/30'
+                                  : 'bg-primary/10 text-primary border border-primary/30'
+                              }`}
+                            >
+                              <span
+                                className={`w-1.5 h-1.5 rounded-full ${
+                                  record.findingType === 'Nodule'
+                                    ? 'bg-error animate-pulse'
+                                    : record.findingType === 'Suspicious'
+                                    ? 'bg-tertiary'
+                                    : 'bg-primary'
+                                }`}
+                              ></span>
+                              {record.finding}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="p-4">
+                          <span className="text-on-surface-variant flex items-center gap-1.5">
+                            <span
+                              className={`material-symbols-outlined text-[16px] ${
+                                record.status === 'Flagged' ? 'text-error' : record.status === 'Signed' ? 'text-[#47EFE0]' : 'text-primary'
+                              }`}
+                            >
+                              {record.status === 'Flagged' ? 'flag' : record.status === 'Signed' ? 'check_circle' : 'inventory_2'}
+                            </span>
+                            {record.status}
+                          </span>
+                        </td>
+                        <td className="p-4 text-right">
+                          <div className="flex justify-end gap-2">
+                            <button
+                              className="p-2 hover:bg-primary-container/20 rounded-lg text-primary transition-colors cursor-pointer"
+                              title="Quick View"
+                              onClick={(e) => handleQuickView(record, e)}
+                            >
+                              <span className="material-symbols-outlined">visibility</span>
+                            </button>
+                            <button
+                              className="p-2 hover:bg-error/10 rounded-lg text-error transition-colors cursor-pointer"
+                              title="Delete Record"
+                              onClick={(e) => handleDeleteRecord(record, e)}
+                            >
+                              <span className="material-symbols-outlined">delete</span>
+                            </button>
+                            <button
+                              className="p-2 hover:bg-primary-container/20 rounded-lg text-primary transition-colors cursor-pointer"
+                              title="Download Report"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                alert(`Downloading DICOM / Report package for ${record.name}...`);
+                              }}
+                            >
+                              <span className="material-symbols-outlined">download</span>
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Pagination Footer */}
+            <footer className="bg-surface-container border-t border-outline-variant p-4 flex flex-col sm:flex-row items-center justify-between gap-4">
+              <div className="text-body-sm text-on-surface-variant font-mono-data">
+                Showing <span className="text-on-surface font-bold">1 - {filteredRecords.length}</span> of{' '}
+                <span className="text-on-surface font-bold">{filteredRecords.length}</span> results
+              </div>
+              <div className="flex items-center gap-2">
+                <button className="p-1.5 rounded text-on-surface-variant disabled:opacity-30 disabled:cursor-not-allowed" disabled>
+                  <span className="material-symbols-outlined text-[20px]">first_page</span>
+                </button>
+                <button className="p-1.5 rounded text-on-surface-variant disabled:opacity-30 disabled:cursor-not-allowed" disabled>
+                  <span className="material-symbols-outlined text-[20px]">chevron_left</span>
+                </button>
+                <div className="flex gap-1">
+                  <button className="w-8 h-8 rounded flex items-center justify-center bg-primary text-on-primary font-bold text-body-sm">
+                    1
+                  </button>
+                </div>
+                <button className="p-1.5 rounded text-on-surface-variant disabled:opacity-30 disabled:cursor-not-allowed" disabled>
+                  <span className="material-symbols-outlined text-[20px]">chevron_right</span>
+                </button>
+                <button className="p-1.5 rounded text-on-surface-variant disabled:opacity-30 disabled:cursor-not-allowed" disabled>
+                  <span className="material-symbols-outlined text-[20px]">last_page</span>
+                </button>
+              </div>
+              <div className="flex items-center gap-2 text-body-sm">
+                <span className="text-on-surface-variant">Rows per page:</span>
+                <select className="bg-transparent border-none focus:ring-0 text-on-surface font-bold cursor-pointer">
+                  <option value="5">5</option>
+                  <option value="10">10</option>
+                </select>
+              </div>
+            </footer>
+          </section>
+        </main>
+
+        {/* Contextual AI Insights Drawer (Hidden by Default, toggleable) */}
+        <div
+          className={`fixed right-0 top-16 h-[calc(100%-4rem)] w-80 bg-surface-container-high/90 backdrop-blur-2xl border-l border-outline-variant shadow-2xl transition-transform duration-300 z-30 ${
+            drawerOpen ? 'translate-x-0' : 'translate-x-full'
+          }`}
+          id="aiDrawer"
+        >
+          <div className="flex flex-col p-panel-padding h-full">
+            <div className="flex justify-between items-center mb-6">
+              <div>
+                <h2 className="text-title-sm font-title-sm text-primary">Clinical Context</h2>
+                <p className="text-body-sm font-body-sm text-on-surface-variant">PACS-Integrated Reporting</p>
+              </div>
+              <button 
+                className="text-on-surface-variant hover:text-primary cursor-pointer flex items-center justify-center" 
+                onClick={() => setDrawerOpen(false)}
+              >
+                <span className="material-symbols-outlined">close</span>
+              </button>
+            </div>
+
+            {selectedRecord ? (
+              <div className="flex-1 space-y-6">
+                <div className="space-y-3">
+                  <h3 className="text-label-caps font-label-caps text-on-surface-variant uppercase">Patient Info</h3>
+                  <div className="bg-surface-container-highest/30 p-3 rounded-lg border border-outline-variant/30 text-body-sm">
+                    <div className="font-bold text-on-surface">{selectedRecord.name}</div>
+                    <div className="text-primary font-mono text-xs">{selectedRecord.mrn}</div>
+                    <div className="text-on-surface-variant mt-1">{selectedRecord.desc}</div>
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  <h3 className="text-label-caps font-label-caps text-on-surface-variant uppercase">AI Insights</h3>
+                  <div className="bg-surface-container-highest/50 p-3 rounded-lg border border-outline-variant">
+                    <div className="flex items-center gap-2 text-primary mb-2">
+                      <span className="material-symbols-outlined text-[20px]">psychology</span>
+                      <span className="text-body-md font-bold">Predictive Analysis</span>
+                    </div>
+                    <p className="text-body-sm text-on-surface-variant leading-relaxed">
+                      {selectedRecord.growthText}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  <h3 className="text-label-caps font-label-caps text-on-surface-variant uppercase">System Logs</h3>
+                  <div className="font-mono-data text-[11px] bg-black/40 p-3 rounded-lg text-primary-fixed-dim/80 space-y-1">
+                    {selectedRecord.log.map((line, idx) => (
+                      <p key={idx}>{line}</p>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="flex-1 flex items-center justify-center text-on-surface-variant italic text-body-sm">
+                Select a study record to view clinical AI insights.
+              </div>
+            )}
+
+            <button
+              className="mt-auto w-full bg-primary text-on-primary font-bold py-3 rounded-lg hover:brightness-110 transition-all flex items-center justify-center gap-2 cursor-pointer shadow-md disabled:opacity-50"
+              disabled={!selectedRecord}
+              onClick={handleFinalizeReport}
+            >
+              <span className="material-symbols-outlined">
+                {selectedRecord?.status === 'Signed' ? 'article' : 'edit_note'}
+              </span>
+              {selectedRecord?.status === 'Signed' ? 'View / Edit Report' : 'Finalize Report'}
             </button>
           </div>
-
-          {selectedRecord ? (
-            <div className="flex-1 space-y-6">
-              <div className="space-y-3">
-                <h3 className="text-label-caps font-label-caps text-on-surface-variant uppercase">Patient Info</h3>
-                <div className="bg-surface-container-highest/30 p-3 rounded-lg border border-outline-variant/30 text-body-sm">
-                  <div className="font-bold text-on-surface">{selectedRecord.name}</div>
-                  <div className="text-primary font-mono text-xs">{selectedRecord.mrn}</div>
-                  <div className="text-on-surface-variant mt-1">{selectedRecord.desc}</div>
-                </div>
-              </div>
-
-              <div className="space-y-3">
-                <h3 className="text-label-caps font-label-caps text-on-surface-variant uppercase">AI Insights</h3>
-                <div className="bg-surface-container-highest/50 p-3 rounded-lg border border-outline-variant">
-                  <div className="flex items-center gap-2 text-primary mb-2">
-                    <span className="material-symbols-outlined text-[20px]">psychology</span>
-                    <span className="text-body-md font-bold">Predictive Analysis</span>
-                  </div>
-                  <p className="text-body-sm text-on-surface-variant leading-relaxed">
-                    {selectedRecord.growthText}
-                  </p>
-                </div>
-              </div>
-
-              <div className="space-y-3">
-                <h3 className="text-label-caps font-label-caps text-on-surface-variant uppercase">System Logs</h3>
-                <div className="font-mono-data text-[11px] bg-black/40 p-3 rounded-lg text-primary-fixed-dim/80 space-y-1">
-                  {selectedRecord.log.map((line, idx) => (
-                    <p key={idx}>{line}</p>
-                  ))}
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div className="flex-1 flex items-center justify-center text-on-surface-variant italic text-body-sm">
-              Select a study record to view clinical AI insights.
-            </div>
-          )}
-
-          <button
-            className="mt-auto w-full bg-primary text-on-primary font-bold py-3 rounded-lg hover:brightness-110 transition-all flex items-center justify-center gap-2 cursor-pointer shadow-md disabled:opacity-50"
-            disabled={!selectedRecord}
-            onClick={handleFinalizeReport}
-          >
-            <span className="material-symbols-outlined">edit_note</span>
-            Finalize Report
-          </button>
         </div>
-      </div>
       </div>
     </div>
   );
