@@ -2,7 +2,7 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 
 interface SidebarProps {
-  activeTab: 'worklist' | 'viewer' | 'reports' | 'archive' | 'settings';
+  activeTab: 'worklist' | 'viewer' | 'reports' | 'archive' | 'settings' | 'help';
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ activeTab }) => {
@@ -86,9 +86,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab }) => {
         </Link>
 
         {/* Settings */}
-        <a
-          href="#"
-          onClick={(e) => e.preventDefault()}
+        <Link
+          to="/settings"
           className={`w-full flex flex-col items-center justify-center p-4 transition-all duration-100 group relative ${
             activeTab === 'settings'
               ? 'text-primary bg-primary-container/10 border-l-2 border-primary'
@@ -96,11 +95,33 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab }) => {
           }`}
           title="Settings"
         >
-          <span className="material-symbols-outlined mb-1 group-hover:scale-110 transition-transform">
+          <span 
+            className="material-symbols-outlined mb-1 group-hover:scale-110 transition-transform"
+            style={activeTab === 'settings' ? { fontVariationSettings: '"FILL" 1' } : undefined}
+          >
             settings
           </span>
           <span className="text-label-caps font-label-caps text-[8px] uppercase">Set...</span>
-        </a>
+        </Link>
+
+        {/* Help */}
+        <Link
+          to="/help"
+          className={`w-full flex flex-col items-center justify-center p-4 transition-all duration-100 group relative ${
+            activeTab === 'help'
+              ? 'text-primary bg-primary-container/10 border-l-2 border-primary'
+              : 'text-on-surface-variant hover:text-primary hover:bg-surface-container-highest/50'
+          }`}
+          title="Help Guide"
+        >
+          <span 
+            className="material-symbols-outlined mb-1 group-hover:scale-110 transition-transform"
+            style={activeTab === 'help' ? { fontVariationSettings: '"FILL" 1' } : undefined}
+          >
+            help
+          </span>
+          <span className="text-label-caps font-label-caps text-[8px] uppercase">Help</span>
+        </Link>
       </nav>
 
       <div className="mt-auto pb-4">

@@ -485,11 +485,8 @@ export const WorklistDashboard: React.FC = () => {
           <div className="bg-[#161B22] border-t-4 border-primary border-x border-b border-[#30363D] rounded-lg shadow-2xl p-6 w-full max-w-md flex flex-col gap-6 animate-fade-in text-on-surface">
             
             <header className="flex items-center gap-3">
-              <span className="material-symbols-outlined text-primary text-3xl">clinical_research</span>
-              <div>
-                <h3 className="text-title-md font-bold tracking-tight text-on-surface">DICOM Ingestion Verification</h3>
-                <p className="text-body-sm text-on-surface-variant">Verify patient metadata extracted from DICOM headers</p>
-              </div>
+              <span className="material-symbols-outlined text-primary text-2xl">database</span>
+              <h3 className="text-title-md font-bold tracking-tight text-on-surface">Verify Patient Metadata</h3>
             </header>
 
             <div className="bg-surface-container-low p-4 rounded border border-[#30363D]/50 flex flex-col gap-3 text-xs">

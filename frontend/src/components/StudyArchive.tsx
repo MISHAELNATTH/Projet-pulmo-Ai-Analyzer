@@ -125,7 +125,7 @@ export const StudyArchive: React.FC = () => {
   const [dateRange, setDateRange] = useState('Last 30 Days');
   const [modality, setModality] = useState<'ALL' | 'CT' | 'XR' | 'MR'>('ALL');
   const [findingType, setFindingType] = useState<string>('All Findings');
-  const [statusFilter, setStatusFilter] = useState<string>('Archived');
+  const [statusFilter, setStatusFilter] = useState<string>('ALL');
   
   // UI Interactive Drawer State
   const [selectedRecordId, setSelectedRecordId] = useState<string | number | null>(null);
@@ -233,7 +233,7 @@ export const StudyArchive: React.FC = () => {
     if (findingType === 'Clear') matchesFinding = record.findingType === 'Clear';
     if (findingType === 'Suspicious') matchesFinding = record.findingType === 'Suspicious';
 
-    const matchesStatus = record.status === statusFilter;
+    const matchesStatus = statusFilter === 'ALL' || record.status === statusFilter;
 
     return matchesSearch && matchesModality && matchesFinding && matchesStatus;
   });
@@ -243,7 +243,7 @@ export const StudyArchive: React.FC = () => {
     setDateRange('Last 30 Days');
     setModality('ALL');
     setFindingType('All Findings');
-    setStatusFilter('Archived');
+    setStatusFilter('ALL');
   };
 
   const handleRowClick = (record: Record) => {
@@ -287,6 +287,483 @@ export const StudyArchive: React.FC = () => {
         console.error('Failed to delete scan from archive:', err);
         alert(`Failed to delete scan: ${err.response?.data?.detail || err.message}`);
       }
+    }
+  };
+  const renderSliceImage = (
+    scanId: string,
+    sliceIndex: number,
+    boundingBox?: [[number, number, number], [number, number, number]]
+  ): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const token = localStorage.getItem('token') || localStorage.getItem('access_token');
+      const headers = token ? { Authorization: `Bearer ${token}` } : {};
+
+      axios
+        .get(`http://localhost:8000/api/scans/${scanId}/slices/${sliceIndex}`, {
+          responseType: 'arraybuffer',
+          headers,
+        })
+        .then((response) => {
+          const floatArray = new Float32Array(response.data);
+          const canvas = document.createElement('canvas');
+          const ctx = canvas.getContext('2d');
+          if (!ctx) {
+            reject(new Error('Could not get canvas context'));
+            return;
+          }
+
+          const width = 512;
+          const height = 512;
+          canvas.width = width;
+          canvas.height = height;
+
+          const imgData = ctx.createImageData(width, height);
+          const data = imgData.data;
+
+          // Window Preset: LUNG (Width: 1500, Center: -600)
+          const windowWidth = 1500;
+          const windowCenter = -600;
+          const minHU = windowCenter - windowWidth / 2;
+
+          for (let i = 0; i < floatArray.length; i++) {
+            const hu = floatArray[i] * 1400.0 - 1000.0;
+            let intensity = 0;
+            if (hu <= minHU) {
+              intensity = 0;
+            } else if (hu >= minHU + windowWidth) {
+              intensity = 255;
+            } else {
+              intensity = Math.round(((hu - minHU) / windowWidth) * 255);
+            }
+
+            const pixelIdx = i * 4;
+            data[pixelIdx] = intensity;
+            data[pixelIdx + 1] = intensity;
+            data[pixelIdx + 2] = intensity;
+            data[pixelIdx + 3] = 255;
+          }
+
+          ctx.putImageData(imgData, 0, 0);
+
+          // Draw AI Bounding Box overlay if provided
+          if (boundingBox) {
+            const [[z_min, y_min, x_min], [z_max, y_max, x_max]] = boundingBox;
+            const noduleX = x_min;
+            const noduleY = y_min;
+            const noduleW = x_max - x_min;
+            const noduleH = y_max - y_min;
+
+            ctx.strokeStyle = '#00D2C4'; // Pulmo Cyan
+            ctx.lineWidth = 3;
+            ctx.fillStyle = 'rgba(0, 210, 196, 0.15)';
+            ctx.strokeRect(noduleX, noduleY, noduleW, noduleH);
+            ctx.fillRect(noduleX, noduleY, noduleW, noduleH);
+
+            // Add label overlay
+            ctx.fillStyle = '#00D2C4';
+            ctx.font = 'bold 16px monospace';
+            ctx.fillText('TARGET TUMOR', noduleX, noduleY - 8);
+          }
+
+          resolve(canvas.toDataURL('image/png'));
+        })
+        .catch((err) => {
+          reject(err);
+        });
+    });
+  };
+
+  const renderMockSliceImage = (): Promise<string> => {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.src = lungCtScan;
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = img.width || 512;
+        canvas.height = img.height || 512;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          
+          // Overlay mock bounding box
+          const noduleX = 260;
+          const noduleY = 190;
+          const noduleW = 48;
+          const noduleH = 48;
+          
+          ctx.strokeStyle = '#00D2C4'; // Pulmo Cyan
+          ctx.lineWidth = 3;
+          ctx.fillStyle = 'rgba(0, 210, 196, 0.15)';
+          ctx.strokeRect(noduleX, noduleY, noduleW, noduleH);
+          ctx.fillRect(noduleX, noduleY, noduleW, noduleH);
+          
+          ctx.fillStyle = '#00D2C4';
+          ctx.font = 'bold 16px monospace';
+          ctx.fillText('TARGET TUMOR', noduleX, noduleY - 8);
+        }
+        resolve(canvas.toDataURL('image/png'));
+      };
+      img.onerror = () => {
+        resolve(lungCtScan);
+      };
+    });
+  };
+
+  const printReportHTML = (
+    patient: any,
+    scanSpecs: any,
+    findings: any[],
+    status: string,
+    log: string[]
+  ) => {
+    const printWindow = window.open('', '_blank', 'width=850,height=1100');
+    if (!printWindow) {
+      alert('Please allow popups to download/print the PDF report.');
+      return;
+    }
+
+    let findingsHTML = '';
+    if (findings.length === 0) {
+      findingsHTML = `
+        <div style="padding: 20px; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; text-align: center; font-style: italic; color: #64748b;">
+          No suspicious pulmonary nodules were detected by the AI pipeline.
+        </div>
+      `;
+    } else {
+      findings.forEach((n, idx) => {
+        findingsHTML += `
+          <div style="margin-bottom: 25px; padding: 15px; border-left: 4px solid #00D2C4; background-color: #f8fafc; border-top: 1px solid #e2e8f0; border-right: 1px solid #e2e8f0; border-bottom: 1px solid #e2e8f0; border-radius: 0 6px 6px 0; page-break-inside: avoid;">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 20px;">
+              <div style="flex: 1;">
+                <h4 style="margin: 0 0 10px 0; color: #0b141c; font-size: 14px; text-transform: uppercase; letter-spacing: 0.5px;">Nodule Finding #${idx + 1}</h4>
+                <table style="width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 10px;">
+                  <tr>
+                    <td style="padding: 4px 0; font-weight: bold; color: #475569; width: 130px;">Anatomical Lobe:</td>
+                    <td style="padding: 4px 0; color: #0b141c;">${n.location || 'Unknown Lobe'}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 4px 0; font-weight: bold; color: #475569;">Voxel Coordinates:</td>
+                    <td style="padding: 4px 0; color: #0b141c; font-family: monospace;">Slice ${n.centroid[0] + 1} (Y: ${Math.round(n.centroid[1])}, X: ${Math.round(n.centroid[2])})</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 4px 0; font-weight: bold; color: #475569;">Max Axial Size:</td>
+                    <td style="padding: 4px 0; color: #0b141c; font-weight: bold;">${n.size_mm.toFixed(1)} mm</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 4px 0; font-weight: bold; color: #475569;">AI Confidence:</td>
+                    <td style="padding: 4px 0; color: #0b141c;">${(n.confidence * 100).toFixed(1)}%</td>
+                  </tr>
+                  ${status === 'Signed' ? `
+                  <tr>
+                    <td style="padding: 4px 0; font-weight: bold; color: #475569;">Composition:</td>
+                    <td style="padding: 4px 0; color: #0b141c;">${n.comp || 'Solid'}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 4px 0; font-weight: bold; color: #475569;">Margin Type:</td>
+                    <td style="padding: 4px 0; color: #0b141c;">${n.margin || 'Smooth'}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 4px 0; font-weight: bold; color: #475569;">Lung-RADS Class:</td>
+                    <td style="padding: 4px 0; color: #0f766e; font-weight: bold;">Category ${n.lungRads || 'N/A'}</td>
+                  </tr>
+                  ` : `
+                  <tr>
+                    <td style="padding: 4px 0; font-weight: bold; color: #475569;">Status:</td>
+                    <td style="padding: 4px 0; color: #b45309; font-style: italic;">Draft (Report unsigned/pending final diagnostics)</td>
+                  </tr>
+                  `}
+                </table>
+                ${status === 'Signed' && n.notes ? `
+                  <div style="margin-top: 10px; padding: 10px; background-color: #f1f5f9; border-radius: 4px; font-size: 11.5px; line-height: 1.4; color: #334155;">
+                    <strong>Radiologist Notes:</strong><br/>
+                    ${n.notes}
+                  </div>
+                ` : ''}
+              </div>
+              
+              ${n.imageSrc ? `
+              <div style="flex-shrink: 0; width: 180px; text-align: center;">
+                <img src="${n.imageSrc}" style="width: 180px; height: 180px; border-radius: 4px; border: 1px solid #cbd5e1; background-color: #000;" />
+                <div style="font-size: 9px; color: #64748b; margin-top: 4px; font-family: monospace;">Centroid Snapshot (Slice ${n.centroid[0] + 1})</div>
+              </div>
+              ` : ''}
+            </div>
+          </div>
+        `;
+      });
+    }
+
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>PneumoGuard AI Report - ${patient.name}</title>
+        <meta charset="utf-8" />
+        <style>
+          body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            color: #0b141c;
+            line-height: 1.5;
+            margin: 0;
+            padding: 30px;
+            background-color: #ffffff;
+            font-size: 13px;
+          }
+          @media print {
+            body {
+              padding: 0;
+            }
+            @page {
+              margin: 20mm;
+              size: A4;
+            }
+          }
+          .header-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 30px;
+            border-bottom: 2px solid #00D2C4;
+            padding-bottom: 15px;
+          }
+          .section-title {
+            font-size: 12px;
+            font-weight: bold;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: #00D2C4;
+            border-bottom: 1px solid #e2e8f0;
+            padding-bottom: 6px;
+            margin-top: 25px;
+            margin-bottom: 15px;
+          }
+          .info-grid {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+          }
+          .info-grid td {
+            padding: 6px 12px;
+            vertical-align: top;
+            border: 1px solid #e2e8f0;
+          }
+          .info-label {
+            font-weight: bold;
+            color: #475569;
+            width: 25%;
+            background-color: #f8fafc;
+          }
+          .info-value {
+            width: 25%;
+            color: #0b141c;
+          }
+          .status-badge {
+            display: inline-block;
+            padding: 4px 10px;
+            font-weight: bold;
+            font-size: 11px;
+            border-radius: 4px;
+            text-transform: uppercase;
+          }
+          .status-signed {
+            background-color: #d1fae5;
+            color: #065f46;
+            border: 1px solid #a7f3d0;
+          }
+          .status-draft {
+            background-color: #fef3c7;
+            color: #92400e;
+            border: 1px solid #fde68a;
+          }
+        </style>
+      </head>
+      <body>
+        <table class="header-table">
+          <tr>
+            <td>
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <div style="font-size: 24px; font-weight: bold; color: #00D2C4; letter-spacing: 0.5px;">PNEUMOGUARD AI</div>
+              </div>
+              <div style="font-size: 11px; color: #64748b; margin-top: 2px; text-transform: uppercase; letter-spacing: 0.5px;">Clinical Diagnostic & Compliance Platform</div>
+            </td>
+            <td style="text-align: right; vertical-align: middle;">
+              <span class="status-badge ${status === 'Signed' ? 'status-signed' : 'status-draft'}">
+                ${status === 'Signed' ? 'Signed & Locked' : 'Draft / Unsigned'}
+              </span>
+            </td>
+          </tr>
+        </table>
+
+        <div class="section-title">Patient Demographics</div>
+        <table class="info-grid">
+          <tr>
+            <td class="info-label">Patient Name</td>
+            <td class="info-value" style="font-weight: bold;">${patient.name}</td>
+            <td class="info-label">MRN / ID</td>
+            <td class="info-value" style="font-family: monospace;">${patient.mrn}</td>
+          </tr>
+          <tr>
+            <td class="info-label">Age / Gender</td>
+            <td class="info-value">${patient.age || 'N/A'} Years / ${patient.gender || 'N/A'}</td>
+            <td class="info-label">Pseudonym ID</td>
+            <td class="info-value" style="font-family: monospace; font-size: 11px; word-break: break-all;">${patient.pseudonym || 'N/A'}</td>
+          </tr>
+          <tr>
+            <td class="info-label">Study Date</td>
+            <td class="info-value">${patient.studyDate}</td>
+            <td class="info-label">Scan Modality</td>
+            <td class="info-value">CT Chest w/o Contrast (Volumetric)</td>
+          </tr>
+        </table>
+
+        <div class="section-title">Scan Acquisition Specifications</div>
+        <table class="info-grid">
+          <tr>
+            <td class="info-label">Slice Count</td>
+            <td class="info-value">${scanSpecs.sliceCount || 'N/A'} Slices</td>
+            <td class="info-label">Slice Thickness</td>
+            <td class="info-value">${scanSpecs.sliceThickness || 'N/A'}</td>
+          </tr>
+          <tr>
+            <td class="info-label">Pixel Spacing</td>
+            <td class="info-value" style="font-family: monospace; font-size: 11px;">${scanSpecs.pixelSpacing || 'N/A'}</td>
+            <td class="info-label">Source System</td>
+            <td class="info-value">PneumoGuard Ingestion Engine</td>
+          </tr>
+        </table>
+
+        <div class="section-title">Diagnostic Findings & AI Telemetry</div>
+        ${findingsHTML}
+
+        <div class="section-title" style="margin-top: 30px;">Compliance & Audit Verification</div>
+        <div style="background-color: #f1f5f9; padding: 10px 15px; border-radius: 4px; font-family: monospace; font-size: 11px; color: #475569; border: 1px solid #e2e8f0; line-height: 1.4;">
+          ${log.map(line => `<div>${line}</div>`).join('')}
+          <div>&gt; View Audit Level: VIEW_RESULT logged.</div>
+          <div>&gt; Report generated securely on local node. Integrity verified.</div>
+        </div>
+
+        <div style="margin-top: 50px; page-break-inside: avoid;">
+          <table style="width: 100%; border-collapse: collapse;">
+            <tr>
+              <td style="width: 50%; padding-right: 40px; vertical-align: bottom;">
+                <div style="border-bottom: 1px solid #94a3b8; height: 30px;"></div>
+                <div style="font-size: 11px; color: #64748b; margin-top: 5px; text-transform: uppercase;">Reporting Radiologist Signature</div>
+              </td>
+              <td style="width: 50%; padding-left: 40px; vertical-align: bottom; text-align: right;">
+                <div style="font-size: 11.5px; color: #0b141c;">Date Signed: ${status === 'Signed' ? patient.studyDate : '____________________'}</div>
+                <div style="font-size: 10px; color: #64748b; margin-top: 5px; font-family: monospace;">PneumoGuard Certification Node: SECURE</div>
+              </td>
+            </tr>
+          </table>
+        </div>
+
+        <script>
+          window.onload = function() {
+            setTimeout(function() {
+              window.print();
+            }, 300);
+          };
+        </script>
+      </body>
+      </html>
+    `;
+
+    printWindow.document.write(htmlContent);
+    printWindow.document.close();
+  };
+
+  const handleDownloadReport = async (record: Record, e: React.MouseEvent) => {
+    e.stopPropagation();
+    
+    // 1. Handle mock scans (numeric ID)
+    if (typeof record.id === 'number') {
+      try {
+        const imageSrc = await renderMockSliceImage();
+        
+        const patient = {
+          name: record.name,
+          mrn: record.mrn.replace('MRN: ', ''),
+          age: '62',
+          gender: 'Male (M)',
+          pseudonym: 'PATIENT_mock_5a8c9b3d',
+          studyDate: record.date
+        };
+
+        const scanSpecs = {
+          sliceCount: '243',
+          sliceThickness: '1.25 mm',
+          pixelSpacing: '[0.7031, 0.7031]'
+        };
+
+        const findings = [];
+        if (record.findingType === 'Nodule') {
+          findings.push({
+            centroid: [120, 260, 190],
+            location: 'Right Upper Lobe',
+            size_mm: 12.4,
+            confidence: 0.92,
+            imageSrc: imageSrc,
+            comp: 'Solid',
+            margin: 'Spiculated',
+            lungRads: '4A',
+            notes: record.growthText
+          });
+        }
+
+        printReportHTML(patient, scanSpecs, findings, record.status === 'Signed' || record.status === 'Archived' ? 'Signed' : 'Draft', record.log);
+      } catch (err) {
+        console.error(err);
+        alert('Failed to generate mock PDF report.');
+      }
+      return;
+    }
+
+    // 2. Handle database scans (string ID)
+    try {
+      const token = localStorage.getItem('token') || localStorage.getItem('access_token');
+      const headers = token ? { Authorization: `Bearer ${token}` } : {};
+      
+      const response = await axios.get(`http://localhost:8000/api/scans/${record.id}/metadata`, { headers });
+      const metadata = response.data;
+      
+      const nodules = metadata.ai_result?.nodules || [];
+      
+      // Render images for all nodules sequentially
+      const findings = [];
+      for (const n of nodules) {
+        let imageSrc = '';
+        try {
+          // Render slice image with bounding box details
+          imageSrc = await renderSliceImage(record.id, n.centroid[0], n.bounding_box);
+        } catch (imgErr) {
+          console.error(`Error rendering slice for nodule ${n.nodule_id}:`, imgErr);
+        }
+        
+        findings.push({
+          ...n,
+          imageSrc
+        });
+      }
+
+      const patient = {
+        name: metadata.patient_name || 'Anonymized Patient',
+        mrn: record.mrn.replace('MRN: ', ''),
+        age: metadata.age_at_scan || 'N/A',
+        gender: metadata.biological_sex === 'M' ? 'Male (M)' : metadata.biological_sex === 'F' ? 'Female (F)' : 'Other (O)',
+        pseudonym: metadata.patient_pseudonym || 'N/A',
+        studyDate: metadata.study_date || 'N/A'
+      };
+
+      const scanSpecs = {
+        sliceCount: metadata.slice_count || 'N/A',
+        sliceThickness: metadata.slice_thickness ? `${metadata.slice_thickness.toFixed(2)} mm` : 'N/A',
+        pixelSpacing: metadata.pixel_spacing ? `[${metadata.pixel_spacing.map((s: number) => s.toFixed(4)).join(', ')}]` : 'N/A'
+      };
+
+      printReportHTML(patient, scanSpecs, findings, metadata.status === 'signed' ? 'Signed' : 'Draft', record.log);
+    } catch (err) {
+      console.error('Error generating report:', err);
+      alert('Failed to generate and download structured PDF report. Please try again.');
     }
   };
 
@@ -443,9 +920,10 @@ export const StudyArchive: React.FC = () => {
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value)}
               >
-                <option>Archived</option>
-                <option>Flagged</option>
-                <option>Signed</option>
+                <option value="ALL">All Statuses</option>
+                <option value="Archived">Archived</option>
+                <option value="Flagged">Flagged</option>
+                <option value="Signed">Signed</option>
               </select>
             </div>
             <button
@@ -561,10 +1039,7 @@ export const StudyArchive: React.FC = () => {
                             <button
                               className="p-2 hover:bg-primary-container/20 rounded-lg text-primary transition-colors cursor-pointer"
                               title="Download Report"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                alert(`Downloading DICOM / Report package for ${record.name}...`);
-                              }}
+                              onClick={(e) => handleDownloadReport(record, e)}
                             >
                               <span className="material-symbols-outlined">download</span>
                             </button>

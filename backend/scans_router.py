@@ -562,3 +562,209 @@ async def analyze_scan(
         "scan_id": scan.id,
         "status": scan.status
     }
+
+@router.get("/{scan_id}/3d-volume")
+async def get_scan_3d_volume(
+    scan_id: str,
+    current_user: models.User = Depends(auth.require_any_user),
+    db: Session = Depends(get_db)
+):
+    """Generates or loads a cached 3D lung surface mesh with centered tumor coordinates."""
+    scan = db.query(models.Scan).filter(models.Scan.id == scan_id).first()
+    if not scan:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Scan not found"
+        )
+        
+    if not scan.dicom_folder_path or not os.path.exists(scan.dicom_folder_path):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Scan folder not found on disk"
+        )
+        
+    cache_file = os.path.join(scan.dicom_folder_path, "3d_lungs.json")
+    
+    # Check if cached
+    if os.path.exists(cache_file):
+        try:
+            with open(cache_file, "r") as f:
+                cached_data = json.load(f)
+                
+            # Dynamic overlay of nodules from the latest AI results
+            nodules = []
+            if scan.ai_result and scan.ai_result.segmentation_mask_path and os.path.exists(scan.ai_result.segmentation_mask_path):
+                try:
+                    with open(scan.ai_result.segmentation_mask_path, "r") as f_ai:
+                        ai_data = json.load(f_ai)
+                        nodules = json.loads(json.dumps(ai_data.get("nodules", []))) # Deep copy
+                except Exception:
+                    pass
+            
+            # Recalculate centered centroids for nodules using the cached center and spacing from DICOM
+            if nodules:
+                slice_files = sorted(glob.glob(os.path.join(scan.dicom_folder_path, "*.dcm")))
+                if slice_files:
+                    try:
+                        ds_first = pydicom.dcmread(slice_files[0])
+                        pixel_spacing = [float(x) for x in getattr(ds_first, "PixelSpacing", [0.75, 0.75])]
+                        slice_thickness = float(getattr(ds_first, "SliceThickness", 1.25))
+                    except Exception:
+                        pixel_spacing = [0.75, 0.75]
+                        slice_thickness = 1.25
+                else:
+                    pixel_spacing = [0.75, 0.75]
+                    slice_thickness = 1.25
+                
+                cx, cy, cz = cached_data.get("center", [0.0, 0.0, 0.0])
+                for nodule in nodules:
+                    nz_vox, ny_vox, nx_vox = nodule["centroid"]
+                    n_phys_x = nx_vox * pixel_spacing[1]
+                    n_phys_y = ny_vox * pixel_spacing[0]
+                    n_phys_z = nz_vox * slice_thickness
+                    nodule["centered_centroid"] = [
+                        float(n_phys_x - cx),
+                        float(n_phys_y - cy),
+                        float(n_phys_z - cz)
+                    ]
+            
+            cached_data["nodules"] = nodules
+            
+            # Save updated cache back so we don't have to keep reading DICOM files next time
+            try:
+                with open(cache_file, "w") as f_out:
+                    json.dump(cached_data, f_out)
+            except Exception:
+                pass
+                
+            return cached_data
+        except Exception:
+            pass
+            
+    # Not cached, generate mesh using Marching Cubes
+    slice_files = sorted(glob.glob(os.path.join(scan.dicom_folder_path, "*.dcm")))
+    slice_count = len(slice_files)
+    if slice_count == 0:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No slices found for 3D reconstruction"
+        )
+        
+    # Read metadata from first slice
+    try:
+        ds_first = pydicom.dcmread(slice_files[0])
+        pixel_spacing = [float(x) for x in getattr(ds_first, "PixelSpacing", [0.75, 0.75])]
+        slice_thickness = float(getattr(ds_first, "SliceThickness", 1.25))
+        rows = int(getattr(ds_first, "Rows", 512))
+        cols = int(getattr(ds_first, "Columns", 512))
+    except Exception as e:
+        print(f"Error reading DICOM spatial metadata: {e}")
+        pixel_spacing = [0.75, 0.75]
+        slice_thickness = 1.25
+        rows = 512
+        cols = 512
+        
+    # Load nodules from AI Results if available
+    nodules = []
+    if scan.ai_result and scan.ai_result.segmentation_mask_path and os.path.exists(scan.ai_result.segmentation_mask_path):
+        try:
+            with open(scan.ai_result.segmentation_mask_path, "r") as f:
+                ai_data = json.load(f)
+                nodules = json.loads(json.dumps(ai_data.get("nodules", []))) # Deep copy
+        except Exception:
+            pass
+
+    # Downsampling parameters
+    target_size = 48
+    max_slices = 48
+    step_z = max(1, slice_count // max_slices)
+    sampled_indices = list(range(0, slice_count, step_z))[:max_slices]
+
+    # Create 3D volume grid
+    volume = np.zeros((len(sampled_indices), target_size, target_size), dtype=np.float32)
+    step_x = max(1, cols // target_size)
+    step_y = max(1, rows // target_size)
+
+    for z_idx, file_idx in enumerate(sampled_indices):
+        file_path = slice_files[file_idx]
+        try:
+            ds = pydicom.dcmread(file_path)
+            pixel_array = ds.pixel_array
+            shape = pixel_array.shape
+            
+            rescale_slope = float(getattr(ds, "RescaleSlope", 1.0))
+            rescale_intercept = float(getattr(ds, "RescaleIntercept", 0.0))
+            
+            # Map pixels to Hounsfield Units safely
+            for y_target in range(target_size):
+                y_orig = min(shape[0] - 1, y_target * step_y)
+                for x_target in range(target_size):
+                    x_orig = min(shape[1] - 1, x_target * step_x)
+                    
+                    val = pixel_array[y_orig, x_orig]
+                    hu = val * rescale_slope + rescale_intercept
+                    volume[z_idx, y_target, x_target] = hu
+        except Exception as e:
+            print(f"Error reading slice {file_idx} for 3D volume: {e}")
+
+    # Marching Cubes Spacing [Z_phys_step, Y_phys_step, X_phys_step]
+    spacing = (step_z * slice_thickness, step_y * pixel_spacing[0], step_x * pixel_spacing[1])
+    
+    # Run marching cubes
+    from skimage import measure
+    try:
+        verts, faces, normals, values = measure.marching_cubes(volume, level=-450.0, spacing=spacing)
+        
+        # Center physical coordinates of the lungs mesh
+        cz = float(np.mean(verts[:, 0]))
+        cy = float(np.mean(verts[:, 1]))
+        cx = float(np.mean(verts[:, 2]))
+        
+        verts_centered = verts.copy()
+        verts_centered[:, 0] -= cz # Physical Z
+        verts_centered[:, 1] -= cy # Physical Y
+        verts_centered[:, 2] -= cx # Physical X
+        
+        vertices_list = verts_centered.tolist()
+        faces_list = faces.tolist()
+    except Exception as e:
+        print(f"Marching cubes failed, using fallback empty mesh: {e}")
+        # Mock empty lungs mesh bounding box
+        vertices_list = [[-50, -50, -50], [50, -50, -50], [50, 50, -50], [-50, 50, -50],
+                         [-50, -50, 50], [50, -50, 50], [50, 50, 50], [-50, 50, 50]]
+        faces_list = [[0, 2, 1], [0, 3, 2], [4, 5, 6], [4, 6, 7], [0, 1, 5], [0, 5, 4],
+                      [1, 2, 6], [1, 6, 5], [2, 3, 7], [2, 7, 6], [3, 0, 4], [3, 4, 7]]
+        cx, cy, cz = 0.0, 0.0, 0.0
+
+    # Project and center nodules in the physical mesh coordinates space
+    for nodule in nodules:
+        # nodule["centroid"] is [Z_vox, Y_vox, X_vox]
+        nz_vox, ny_vox, nx_vox = nodule["centroid"]
+        n_phys_x = nx_vox * pixel_spacing[1]
+        n_phys_y = ny_vox * pixel_spacing[0]
+        n_phys_z = nz_vox * slice_thickness
+        
+        # Centered physical coordinates
+        nodule["centered_centroid"] = [
+            float(n_phys_x - cx),
+            float(n_phys_y - cy),
+            float(n_phys_z - cz)
+        ]
+        
+    payload = {
+        "vertices": vertices_list,
+        "faces": faces_list,
+        "nodules": nodules,
+        "center": [float(cx), float(cy), float(cz)]
+    }
+    
+    # Save cache
+    try:
+        with open(cache_file, "w") as f:
+            json.dump(payload, f)
+    except Exception as e:
+        print(f"Error caching 3D lungs mesh JSON: {e}")
+        
+    return payload
+
+

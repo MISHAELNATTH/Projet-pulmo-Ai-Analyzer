@@ -1,13 +1,13 @@
 {
     "status": "completed",
     "model_version": "MONAI RetinaNet v0.6.9 (CPU)",
-    "inference_time_ms": 36909,
+    "inference_time_ms": 56727,
     "nodules": [
         {
             "nodule_id": "nodule_real_1",
             "centroid": [
                 188,
-                248,
+                247,
                 374
             ],
             "bounding_box": [
@@ -18,35 +18,39 @@
                 ],
                 [
                     199,
-                    261,
+                    260,
                     387
                 ]
             ],
             "raw_centroid": [
                 49.37,
-                98.43,
-                51.02
+                98.39,
+                50.98
             ],
             "raw_bounding_box": [
                 [
                     46.68,
-                    93.71,
-                    46.32
+                    93.68,
+                    46.28
                 ],
                 [
                     52.06,
-                    103.15,
-                    55.73
+                    103.11,
+                    55.68
                 ]
             ],
             "world_centroid": [
                 58.66,
-                14.39,
+                13.72,
                 -86.25
             ],
-            "confidence": 0.9960857629776001,
-            "size_mm": 26.25,
-            "location": "Right Upper Lobe"
+            "confidence": 0.9956455826759338,
+            "size_mm": 16.6,
+            "location": "Right Upper Lobe",
+            "comp": "Solid",
+            "margin": "Spiculated",
+            "lungRads": "4B - Very Suspicious",
+            "notes": "Nodule detected in the Right Upper Lobe. Measures 16.6 mm. Margins appear spiculated. Composition is Solid. Recommend chest CT with contrast, PET/CT, and/or tissue sampling (biopsy)."
         }
     ]
 }

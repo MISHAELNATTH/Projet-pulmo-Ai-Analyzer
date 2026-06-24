@@ -45,6 +45,7 @@ class NoduleDetector:
                     # Override paths and device dynamically
                     parser.config["bundle_root"] = self.bundle_dir
                     parser.config["device"] = self.device
+                    parser.config["whether_raw_luna16"] = True
                     
                     # Parse and load detector content
                     parser.parse()
@@ -263,11 +264,10 @@ class NoduleDetector:
                         hu_val = f"Error reading pixel/header: {e}"
                         world_centroid = None
                         
-                    # Calculate size in mm using original spacing and thickness
+                    # Calculate size in mm using original spacing in the transverse (axial) plane (clinically standard)
                     size_mm = float(np.max([
                         (ox_max_c - ox_min_c) * float(spacing[0]),
-                        (oy_max_c - oy_min_c) * float(spacing[1]),
-                        (oz_max_c - oz_min_c) * float(thickness)
+                        (oy_max_c - oy_min_c) * float(spacing[1])
                     ]))
                     
                     # Logger print output as requested (Task 1)

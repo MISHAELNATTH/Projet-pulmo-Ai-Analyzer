@@ -17,6 +17,8 @@ interface CornerstoneViewportProps {
   activeTool: 'pan' | 'zoom' | 'contrast' | 'none';
   aiOverlayActive: boolean;
   nodules?: Nodule[];
+  sliceThickness?: number;
+  sliceCount?: number;
 }
 
 export const CornerstoneViewport: React.FC<CornerstoneViewportProps> = ({
@@ -26,6 +28,8 @@ export const CornerstoneViewport: React.FC<CornerstoneViewportProps> = ({
   activeTool,
   aiOverlayActive,
   nodules = [],
+  sliceThickness,
+  sliceCount,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -258,9 +262,11 @@ export const CornerstoneViewport: React.FC<CornerstoneViewportProps> = ({
   };
 
   const handleWheel = (e: React.WheelEvent) => {
-    e.preventDefault();
-    const factor = Math.max(0.1, zoom - e.deltaY * 0.001);
-    setZoom(factor);
+    if (activeTool === 'zoom') {
+      e.preventDefault();
+      const factor = Math.max(0.1, zoom - e.deltaY * 0.001);
+      setZoom(factor);
+    }
   };
 
   // Reset Viewport transforms
@@ -307,8 +313,11 @@ export const CornerstoneViewport: React.FC<CornerstoneViewportProps> = ({
       <canvas ref={canvasRef} className="block w-full h-full" />
 
       {/* Info text inside viewport */}
-      <div className="absolute bottom-4 left-4 z-10 text-mono-data font-mono-data text-on-surface-variant drop-shadow-md text-xs pointer-events-none bg-black/40 px-2 py-1 rounded border border-[#30363D]/40">
-        W: {windowWidth} L: {windowCenter} | Zoom: {Math.round(zoom * 100)}% | Active Tool: {activeTool.toUpperCase()}
+      <div className="absolute bottom-4 left-4 z-10 text-mono-data font-mono-data text-on-surface-variant drop-shadow-md text-xs pointer-events-none bg-black/40 px-2 py-1 rounded border border-[#30363D]/40 flex flex-col gap-0.5">
+        <div>W: {windowWidth} L: {windowCenter} | Zoom: {Math.round(zoom * 100)}% | Active Tool: {activeTool.toUpperCase()}</div>
+        {sliceThickness !== undefined && sliceCount !== undefined && (
+          <div>Thick: {sliceThickness.toFixed(2)} mm | Slice {sliceIndex + 1}/{sliceCount}</div>
+        )}
       </div>
 
       <button

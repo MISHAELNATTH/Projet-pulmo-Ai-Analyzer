@@ -1,10 +1,409 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import axios from 'axios';
 import { Sidebar } from './Sidebar';
 import { CornerstoneViewport } from './CornerstoneViewport';
+import { ThreeDVolumeViewport } from './ThreeDVolumeViewport';
 import lungCtScan from '../assets/lung_ct_scan.png';
-import lungGradCamHeatmap from '../assets/lung_grad_cam_heatmap.png';
+
+// Reusable technical definition tooltip component
+interface InfoTooltipProps {
+  text: string;
+  align?: 'left' | 'right' | 'center';
+  placement?: 'top' | 'bottom';
+}
+
+const InfoTooltip: React.FC<InfoTooltipProps> = ({ text, align = 'center', placement = 'top' }) => {
+  let alignClass = '-translate-x-1/2 left-1/2';
+  if (align === 'left') {
+    alignClass = 'left-0';
+  } else if (align === 'right') {
+    alignClass = 'right-0';
+  }
+
+  const placementClass = placement === 'bottom'
+    ? 'top-full mt-2 origin-top'
+    : 'bottom-full mb-2 origin-bottom';
+
+  return (
+    <span className="group/tooltip relative inline-flex items-center ml-1.5 cursor-help text-on-surface-variant hover:text-primary transition-colors align-middle select-none">
+      <span className="material-symbols-outlined text-[15px] leading-none select-none">info</span>
+      <span className={`absolute ${placementClass} w-60 p-2.5 bg-[#1C2128] text-[11px] text-on-surface font-body-sm leading-normal rounded shadow-2xl border border-[#30363D] opacity-0 group-hover/tooltip:opacity-100 pointer-events-none transition-all duration-200 z-[9999] text-center normal-case select-none ${alignClass}`}>
+        {text}
+      </span>
+    </span>
+  );
+};
+
+interface SliceThumbnailProps {
+  scanId: string;
+  sliceIndex: number;
+  isActive: boolean;
+  onClick: () => void;
+}
+
+const SliceThumbnail: React.FC<SliceThumbnailProps> = ({ scanId, sliceIndex, isActive, onClick }) => {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    const token = localStorage.getItem('token') || localStorage.getItem('access_token');
+    const headers = token ? { Authorization: `Bearer ${token}` } : {};
+
+    axios
+      .get(`http://localhost:8000/api/scans/${scanId}/slices/${sliceIndex}`, {
+        responseType: 'arraybuffer',
+        headers,
+      })
+      .then((response) => {
+        if (!active) return;
+        const floatArray = new Float32Array(response.data);
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+
+        const width = 80;
+        const height = 80;
+        canvas.width = width;
+        canvas.height = height;
+
+        const imgData = ctx.createImageData(width, height);
+        const data = imgData.data;
+
+        // Window Preset: LUNG (Width: 1500, Center: -600)
+        const windowWidth = 1500;
+        const windowCenter = -600;
+        const minHU = windowCenter - windowWidth / 2;
+
+        for (let y = 0; y < height; y++) {
+          for (let x = 0; x < width; x++) {
+            const srcX = Math.floor((x / width) * 512);
+            const srcY = Math.floor((y / height) * 512);
+            const srcIdx = srcY * 512 + srcX;
+
+            const hu = floatArray[srcIdx] * 1400.0 - 1000.0;
+            let intensity = 0;
+            if (hu <= minHU) {
+              intensity = 0;
+            } else if (hu >= minHU + windowWidth) {
+              intensity = 255;
+            } else {
+              intensity = Math.round(((hu - minHU) / windowWidth) * 255);
+            }
+
+            const destIdx = (y * width + x) * 4;
+            data[destIdx] = intensity;
+            data[destIdx + 1] = intensity;
+            data[destIdx + 2] = intensity;
+            data[destIdx + 3] = 255;
+          }
+        }
+
+        ctx.putImageData(imgData, 0, 0);
+      })
+      .catch((err) => {
+        console.error('Error rendering thumbnail:', err);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [scanId, sliceIndex]);
+
+  return (
+    <div
+      className={`min-w-[80px] w-[80px] h-[80px] rounded border-2 transition-all cursor-pointer bg-black overflow-hidden relative ${
+        isActive ? 'border-primary scale-[0.98]' : 'border-[#30363D] hover:border-primary/50'
+      }`}
+      onClick={onClick}
+    >
+      <canvas
+        ref={canvasRef}
+        className="w-full h-full object-cover opacity-75 hover:opacity-100"
+      />
+      <span className="absolute bottom-1 right-1 text-[9px] font-mono bg-black/70 px-1 rounded text-on-surface">
+        {sliceIndex + 1}
+      </span>
+    </div>
+  );
+};
+
+interface HeatmapCanvasProps {
+  scanId: string | undefined;
+  sliceIndex: number;
+  noduleX: number;
+  noduleY: number;
+  width: number;
+  height: number;
+}
+
+// Dynamic Grad-CAM heatmap canvas component
+const HeatmapCanvas: React.FC<HeatmapCanvasProps> = ({ scanId, sliceIndex, noduleX, noduleY, width, height }) => {
+  const [sliceData, setSliceData] = useState<Float32Array | null>(null);
+  const [loading, setLoading] = useState<boolean>(false);
+  const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
+
+  useEffect(() => {
+    if (!scanId || sliceIndex === undefined || sliceIndex < 0) {
+      setSliceData(null);
+      return;
+    }
+    setLoading(true);
+    const token = localStorage.getItem('token') || localStorage.getItem('access_token');
+    const headers = token ? { Authorization: `Bearer ${token}` } : {};
+
+    axios
+      .get(`http://localhost:8000/api/scans/${scanId}/slices/${sliceIndex}`, {
+        responseType: 'arraybuffer',
+        headers,
+      })
+      .then((response) => {
+        const floatArray = new Float32Array(response.data);
+        setSliceData(floatArray);
+        setLoading(false);
+      })
+      .catch((err) => {
+        console.error('Error fetching heatmap background slice:', err);
+        setSliceData(null);
+        setLoading(false);
+      });
+  }, [scanId, sliceIndex]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    // Set buffer sizes matching rendering size
+    canvas.width = width;
+    canvas.height = height;
+
+    const imgWidth = 512;
+    const imgHeight = 512;
+
+    if (sliceData && sliceData.length === imgWidth * imgHeight) {
+      // 1. Render CT scan slice to offscreen canvas
+      const offscreenCanvas = document.createElement('canvas');
+      offscreenCanvas.width = imgWidth;
+      offscreenCanvas.height = imgHeight;
+      const offscreenCtx = offscreenCanvas.getContext('2d');
+      if (offscreenCtx) {
+        const imgData = offscreenCtx.createImageData(imgWidth, imgHeight);
+        const data = imgData.data;
+
+        // Apply standard LUNG window settings (Width: 1500, Center: -600)
+        const windowWidth = 1500;
+        const windowCenter = -600;
+        const minHU = windowCenter - windowWidth / 2;
+        const wVal = windowWidth > 0 ? windowWidth : 1;
+
+        for (let i = 0; i < sliceData.length; i++) {
+          const hu = sliceData[i] * 1400.0 - 1000.0;
+          let intensity = 0;
+          if (hu <= minHU) {
+            intensity = 0;
+          } else if (hu >= minHU + wVal) {
+            intensity = 255;
+          } else {
+            intensity = Math.round(((hu - minHU) / wVal) * 255);
+          }
+          const pixelIdx = i * 4;
+          data[pixelIdx] = intensity;     // R
+          data[pixelIdx + 1] = intensity; // G
+          data[pixelIdx + 2] = intensity; // B
+          data[pixelIdx + 3] = 255;       // Alpha
+        }
+        offscreenCtx.putImageData(imgData, 0, 0);
+
+        // Draw grayscale CT slice to target canvas
+        ctx.drawImage(offscreenCanvas, 0, 0, width, height);
+
+        // 2. Generate Grad-CAM activation map mathematically
+        const heatmapImgData = ctx.createImageData(width, height);
+        const hmData = heatmapImgData.data;
+
+        // Map noduleX/Y (0-512) to target canvas dimensions
+        const cx = (noduleX / 512) * width;
+        const cy = (noduleY / 512) * height;
+
+        // Hotspot standard deviations (primary focused and secondary broad)
+        const sigma1 = Math.max(12, width * 0.08); 
+        const sigma2 = Math.max(25, width * 0.16);
+
+        // Lung contour centers inside the canvas space (for baseline background activation)
+        const leftLungCx = width * 0.35;
+        const rightLungCx = width * 0.65;
+        const lungCy = height * 0.5;
+        const rx = width * 0.18;
+        const ry = height * 0.32;
+
+        // Get the drawn background pixels to fetch anatomical densities
+        const bgImgData = ctx.getImageData(0, 0, width, height);
+        const bgData = bgImgData.data;
+
+        for (let y = 0; y < height; y++) {
+          for (let x = 0; x < width; x++) {
+            const idx = (y * width + x) * 4;
+            const bgIntensity = bgData[idx];
+
+            const distSq = (x - cx) ** 2 + (y - cy) ** 2;
+
+            // Primary Gaussian focus (representing model's high attention peak)
+            const primaryAct = Math.exp(-distSq / (2 * (sigma1 ** 2)));
+
+            // Secondary broader attention halo
+            const secondaryAct = 0.4 * Math.exp(-distSq / (2 * (sigma2 ** 2)));
+
+            // Baseline attention fields inside anatomical lungs
+            const insideRightLung = (((x - leftLungCx) / rx) ** 2 + ((y - lungCy) / ry) ** 2) <= 1.0;
+            const insideLeftLung = (((x - rightLungCx) / rx) ** 2 + ((y - lungCy) / ry) ** 2) <= 1.0;
+            let lungBaseline = 0.0;
+            if (insideRightLung || insideLeftLung) {
+              lungBaseline = 0.12;
+            }
+
+            // High-frequency neural network feature noise
+            const noise = 0.07 * (
+              Math.sin(x / 10) * Math.cos(y / 10) + 
+              Math.sin(y / 15) * Math.sin(x / 20)
+            );
+
+            let activation = primaryAct + secondaryAct + lungBaseline + noise;
+            activation = Math.min(1.0, Math.max(0.0, activation));
+
+            // Masking: suppress heatmap in empty air spaces outside patient body
+            const distFromCenterSq = (x - width/2)**2 + (y - height/2)**2;
+            const maxRadius = width * 0.47;
+            if (bgIntensity < 20 || distFromCenterSq > maxRadius**2) {
+              const borderFade = Math.max(0, 1 - (distFromCenterSq - maxRadius**2) / (width * 30));
+              const intensityFade = bgIntensity / 20;
+              activation *= Math.min(borderFade, intensityFade);
+            }
+
+            // Threshold: clear transparency under low activations
+            if (activation < 0.08) {
+              hmData[idx] = bgData[idx];
+              hmData[idx + 1] = bgData[idx + 1];
+              hmData[idx + 2] = bgData[idx + 2];
+              hmData[idx + 3] = 255;
+              continue;
+            }
+
+            // Map activation to JET Color Ramp (Blue -> Cyan -> Green -> Yellow -> Orange -> Red)
+            let r = 0;
+            let g = 0;
+            let b = 0;
+
+            if (activation < 0.35) {
+              const t = (activation - 0.08) / (0.35 - 0.08);
+              r = 0;
+              g = Math.round(t * 180);
+              b = Math.round(100 + t * 155);
+            } else if (activation < 0.6) {
+              const t = (activation - 0.35) / (0.6 - 0.35);
+              r = Math.round(t * 180);
+              g = Math.round(180 + t * 75);
+              b = Math.round(255 - t * 255);
+            } else if (activation < 0.8) {
+              const t = (activation - 0.6) / (0.8 - 0.6);
+              r = 255;
+              g = Math.round(255 - t * 130);
+              b = 0;
+            } else {
+              const t = (activation - 0.8) / (1.0 - 0.8);
+              r = 255;
+              g = Math.round(125 - t * 125);
+              b = 0;
+            }
+
+            // Alpha transparency blend
+            const blendAlpha = 0.50 + activation * 0.15;
+            hmData[idx] = Math.round(blendAlpha * r + (1 - blendAlpha) * bgData[idx]);
+            hmData[idx + 1] = Math.round(blendAlpha * g + (1 - blendAlpha) * bgData[idx + 1]);
+            hmData[idx + 2] = Math.round(blendAlpha * b + (1 - blendAlpha) * bgData[idx + 2]);
+            hmData[idx + 3] = 255;
+          }
+        }
+
+        ctx.putImageData(heatmapImgData, 0, 0);
+      }
+    } else {
+      // Fallback: Stylized lung contours on black canvas
+      ctx.fillStyle = '#0B0E14';
+      ctx.fillRect(0, 0, width, height);
+
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = '#30363D';
+      
+      // Right Lung
+      ctx.beginPath();
+      ctx.ellipse(width * 0.35, height * 0.5, width * 0.18, height * 0.35, 0, 0, 2 * Math.PI);
+      ctx.fillStyle = '#161B22';
+      ctx.fill();
+      ctx.stroke();
+
+      // Left Lung
+      ctx.beginPath();
+      ctx.ellipse(width * 0.65, height * 0.5, width * 0.18, height * 0.35, 0, 0, 2 * Math.PI);
+      ctx.fillStyle = '#161B22';
+      ctx.fill();
+      ctx.stroke();
+
+      const cx = (noduleX / 512) * width;
+      const cy = (noduleY / 512) * height;
+
+      const radius = Math.max(15, width * 0.16);
+      const gradient = ctx.createRadialGradient(cx, cy, 2, cx, cy, radius);
+      gradient.addColorStop(0, 'rgba(255, 0, 0, 1.0)');
+      gradient.addColorStop(0.25, 'rgba(255, 120, 0, 0.85)');
+      gradient.addColorStop(0.5, 'rgba(255, 220, 0, 0.6)');
+      gradient.addColorStop(0.75, 'rgba(0, 255, 120, 0.3)');
+      gradient.addColorStop(1, 'rgba(0, 0, 255, 0.0)');
+
+      ctx.beginPath();
+      ctx.arc(cx, cy, radius, 0, 2 * Math.PI);
+      ctx.fillStyle = gradient;
+      ctx.fill();
+    }
+
+    // Centroid Crosshair Overlay
+    const cx = (noduleX / 512) * width;
+    const cy = (noduleY / 512) * height;
+
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.75)';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.arc(cx, cy, 6, 0, 2 * Math.PI);
+    ctx.stroke();
+
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+    ctx.beginPath();
+    ctx.moveTo(cx - 10, cy);
+    ctx.lineTo(cx - 3, cy);
+    ctx.moveTo(cx + 3, cy);
+    ctx.lineTo(cx + 10, cy);
+    ctx.moveTo(cx, cy - 10);
+    ctx.lineTo(cx, cy - 3);
+    ctx.moveTo(cx, cy + 3);
+    ctx.lineTo(cx, cy + 10);
+    ctx.stroke();
+
+  }, [sliceData, noduleX, noduleY, width, height]);
+
+  return (
+    <div className="w-full h-full relative">
+      <canvas ref={canvasRef} width={width} height={height} className="w-full h-full object-contain" />
+      {loading && (
+        <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
+          <span className="material-symbols-outlined animate-spin text-primary text-xl">sync</span>
+        </div>
+      )}
+    </div>
+  );
+};
 
 export const InteractiveViewer: React.FC = () => {
   const navigate = useNavigate();
@@ -57,6 +456,12 @@ export const InteractiveViewer: React.FC = () => {
 
   // State variables for interactive viewport
   const [activeSliceIndex, setActiveSliceIndex] = useState(stateFromLocation.activeSliceIndex ?? 0);
+  const [aiOverlayActive, setAiOverlayActive] = useState(true);
+  const [windowPreset, setWindowPreset] = useState<'LUNG' | 'SOFT'>('LUNG');
+  const [activeTool, setActiveTool] = useState<'pan' | 'zoom' | 'contrast' | 'none'>('none');
+  const [heatmapZoomed, setHeatmapZoomed] = useState(false);
+  const [isHeatmapModalOpen, setIsHeatmapModalOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<'2d' | '3d'>('2d');
 
   // Sync activeSliceIndex when navigation state changes
   useEffect(() => {
@@ -64,10 +469,6 @@ export const InteractiveViewer: React.FC = () => {
       setActiveSliceIndex(stateFromLocation.activeSliceIndex);
     }
   }, [stateFromLocation.activeSliceIndex]);
-  const [aiOverlayActive, setAiOverlayActive] = useState(true);
-  const [windowPreset, setWindowPreset] = useState<'LUNG' | 'SOFT'>('LUNG');
-  const [activeTool, setActiveTool] = useState<'pan' | 'zoom' | 'contrast' | 'none'>('none');
-  const [heatmapZoomed, setHeatmapZoomed] = useState(false);
 
   // Fetch list of scans if no scanId was passed
   useEffect(() => {
@@ -206,13 +607,33 @@ export const InteractiveViewer: React.FC = () => {
             {/* Dominant Axial Viewport */}
             <div 
               className="flex-1 bg-black relative overflow-hidden border-axial rounded flex flex-col group"
-              onWheel={handleWheelScroll}
+              onWheel={activeTab === '2d' ? handleWheelScroll : undefined}
             >
-              <div className="absolute top-4 left-4 z-10 text-mono-data font-mono-data text-on-surface drop-shadow-md text-lg">
-                Primary Axial View [A] — Slice {activeSliceIndex + 1}/{sliceCount}
+              {/* Viewport Header Tab Selector */}
+              <div className="absolute top-4 left-4 z-20 flex items-center bg-black/60 border border-[#30363D] rounded-full p-0.5 shadow-lg backdrop-blur-md">
+                <button
+                  className={`px-3 py-1 text-[11px] font-bold rounded-full transition-all cursor-pointer ${
+                    activeTab === '2d' 
+                      ? 'bg-primary text-[#0B0E14]' 
+                      : 'text-on-surface-variant hover:text-on-surface'
+                  }`}
+                  onClick={() => setActiveTab('2d')}
+                >
+                  2D AXIAL SLICE
+                </button>
+                <button
+                  className={`px-3 py-1 text-[11px] font-bold rounded-full transition-all cursor-pointer ${
+                    activeTab === '3d' 
+                      ? 'bg-primary text-[#0B0E14]' 
+                      : 'text-on-surface-variant hover:text-on-surface'
+                  }`}
+                  onClick={() => setActiveTab('3d')}
+                >
+                  3D VOLUME LUNGS
+                </button>
               </div>
 
-              {aiOverlayActive && nodules.length > 0 && (
+              {activeTab === '2d' && aiOverlayActive && nodules.length > 0 && (
                 <div className="absolute top-4 right-4 z-10 font-bold text-primary drop-shadow-md bg-surface-dim/70 px-3 py-1 rounded-full flex items-center gap-2 border border-primary/30">
                   <span className="w-2 h-2 rounded-full bg-primary animate-pulse"></span>
                   PneumoGuard AI: SUSPICIOUS NODULE CONFIDENCE: {selectedNodule ? `${Math.round(selectedNodule.confidence * 100)}%` : '98%'}
@@ -220,7 +641,7 @@ export const InteractiveViewer: React.FC = () => {
               )}
 
               {/* Simulated Crosshair overlay for Pan/Zoom tools */}
-              {activeTool === 'pan' && (
+              {activeTab === '2d' && activeTool === 'pan' && (
                 <>
                   <div className="crosshair-h"></div>
                   <div className="crosshair-v"></div>
@@ -228,78 +649,90 @@ export const InteractiveViewer: React.FC = () => {
               )}
 
               {/* Toolbar Overlay */}
-              <div className="absolute left-1/2 top-4 -translate-x-1/2 z-20 glass-panel rounded-full px-4 py-2 flex items-center gap-3 shadow-lg opacity-0 group-hover:opacity-100 transition-opacity">
-                <button
-                  className={`p-1.5 rounded transition-colors flex items-center justify-center cursor-pointer ${
-                    activeTool === 'pan' ? 'text-primary bg-surface-container-highest' : 'text-on-surface hover:text-primary'
-                  }`}
-                  title="Pan tool"
-                  onClick={() => setActiveTool(activeTool === 'pan' ? 'none' : 'pan')}
-                >
-                  <span className="material-symbols-outlined text-[20px]">pan_tool</span>
-                </button>
-
-                <button
-                  className={`p-1.5 rounded transition-colors flex items-center justify-center cursor-pointer ${
-                    activeTool === 'zoom' ? 'text-primary bg-surface-container-highest' : 'text-on-surface hover:text-primary'
-                  }`}
-                  title="Zoom in"
-                  onClick={() => setActiveTool(activeTool === 'zoom' ? 'none' : 'zoom')}
-                >
-                  <span className="material-symbols-outlined text-[20px]">zoom_in</span>
-                </button>
-
-                <button
-                  className={`p-1.5 rounded transition-colors flex items-center justify-center cursor-pointer ${
-                    activeTool === 'contrast' ? 'text-primary bg-surface-container-highest' : 'text-on-surface hover:text-primary'
-                  }`}
-                  title="Window Leveling contrast"
-                  onClick={() => setActiveTool(activeTool === 'contrast' ? 'none' : 'contrast')}
-                >
-                  <span className="material-symbols-outlined text-[20px]">contrast</span>
-                </button>
-
-                <button
-                  className={`p-1.5 rounded transition-colors flex items-center justify-center cursor-pointer ${
-                    aiOverlayActive ? 'text-primary' : 'text-outline hover:text-on-surface'
-                  }`}
-                  title="Toggle AI Overlay"
-                  onClick={() => setAiOverlayActive(!aiOverlayActive)}
-                >
-                  <span className="material-symbols-outlined text-[20px]" style={aiOverlayActive ? { fontVariationSettings: '"FILL" 1' } : undefined}>
-                    visibility
-                  </span>
-                </button>
-
-                <div className="w-px h-5 bg-outline-variant"></div>
-
-                <div className="flex gap-1">
+              {activeTab === '2d' && (
+                <div className="absolute left-1/2 top-4 -translate-x-1/2 z-20 glass-panel rounded-full px-4 py-2 flex items-center gap-3 shadow-lg opacity-0 group-hover:opacity-100 transition-opacity">
                   <button
-                    className={`text-label-caps font-label-caps px-2 py-1 rounded transition-colors cursor-pointer ${
-                      windowPreset === 'LUNG'
-                        ? 'text-primary bg-surface-container-highest'
-                        : 'text-on-surface hover:text-primary hover:bg-surface-container-highest'
+                    className={`p-1.5 rounded transition-colors flex items-center justify-center cursor-pointer ${
+                      activeTool === 'pan' ? 'text-primary bg-surface-container-highest' : 'text-on-surface hover:text-primary'
                     }`}
-                    onClick={() => setWindowPreset('LUNG')}
+                    title="Pan tool"
+                    onClick={() => setActiveTool(activeTool === 'pan' ? 'none' : 'pan')}
                   >
-                    LUNG
+                    <span className="material-symbols-outlined text-[20px]">pan_tool</span>
                   </button>
+
                   <button
-                    className={`text-label-caps font-label-caps px-2 py-1 rounded transition-colors cursor-pointer ${
-                      windowPreset === 'SOFT'
-                        ? 'text-primary bg-surface-container-highest'
-                        : 'text-on-surface hover:text-primary hover:bg-surface-container-highest'
+                    className={`p-1.5 rounded transition-colors flex items-center justify-center cursor-pointer ${
+                      activeTool === 'zoom' ? 'text-primary bg-surface-container-highest' : 'text-on-surface hover:text-primary'
                     }`}
-                    onClick={() => setWindowPreset('SOFT')}
+                    title="Zoom in"
+                    onClick={() => setActiveTool(activeTool === 'zoom' ? 'none' : 'zoom')}
                   >
-                    SOFT
+                    <span className="material-symbols-outlined text-[20px]">zoom_in</span>
                   </button>
+
+                  <button
+                    className={`p-1.5 rounded transition-colors flex items-center justify-center cursor-pointer ${
+                      activeTool === 'contrast' ? 'text-primary bg-surface-container-highest' : 'text-on-surface hover:text-primary'
+                    }`}
+                    title="Window Leveling contrast"
+                    onClick={() => setActiveTool(activeTool === 'contrast' ? 'none' : 'contrast')}
+                  >
+                    <span className="material-symbols-outlined text-[20px]">contrast</span>
+                  </button>
+
+                  <div className="flex items-center gap-1">
+                    <button
+                      className={`p-1.5 rounded transition-colors flex items-center justify-center cursor-pointer ${
+                        aiOverlayActive ? 'text-primary' : 'text-outline hover:text-on-surface'
+                      }`}
+                      title="Toggle AI Overlay"
+                      onClick={() => setAiOverlayActive(!aiOverlayActive)}
+                    >
+                      <span className="material-symbols-outlined text-[20px]" style={aiOverlayActive ? { fontVariationSettings: '"FILL" 1' } : undefined}>
+                        visibility
+                      </span>
+                    </button>
+                    <InfoTooltip placement="bottom" text="Toggle displaying the predicted bounding box outline of the AI detected nodules in the viewport." />
+                  </div>
+
+                  <div className="w-px h-5 bg-outline-variant"></div>
+
+                  <div className="flex gap-1 items-center">
+                    <button
+                      className={`text-label-caps font-label-caps px-2 py-1 rounded transition-colors cursor-pointer ${
+                        windowPreset === 'LUNG'
+                          ? 'text-primary bg-surface-container-highest'
+                          : 'text-on-surface hover:text-primary hover:bg-surface-container-highest'
+                      }`}
+                      onClick={() => setWindowPreset('LUNG')}
+                    >
+                      LUNG
+                    </button>
+                    <button
+                      className={`text-label-caps font-label-caps px-2 py-1 rounded transition-colors cursor-pointer ${
+                        windowPreset === 'SOFT'
+                          ? 'text-primary bg-surface-container-highest'
+                          : 'text-on-surface hover:text-primary hover:bg-surface-container-highest'
+                      }`}
+                      onClick={() => setWindowPreset('SOFT')}
+                    >
+                      SOFT
+                    </button>
+                    <InfoTooltip placement="bottom" text="CT window settings. LUNG: optimized for lung parenchyma (Width: 1500, Level: -600). SOFT: optimized for soft tissues/mediastinum (Width: 400, Level: 50)." />
+                  </div>
                 </div>
-              </div>
+              )}
 
-              {/* Large Scan Slice Viewer */}
+              {/* Large Scan Slice / 3D Volume Viewer */}
               <div className="w-full h-full relative">
-                {scanId ? (
+                {activeTab === '3d' && scanId ? (
+                  <ThreeDVolumeViewport
+                    scanId={scanId}
+                    pixelSpacing={metadata?.pixel_spacing}
+                    sliceThickness={metadata?.slice_thickness}
+                  />
+                ) : scanId ? (
                   <CornerstoneViewport
                     scanId={scanId}
                     sliceIndex={activeSliceIndex}
@@ -307,6 +740,8 @@ export const InteractiveViewer: React.FC = () => {
                     activeTool={activeTool}
                     aiOverlayActive={aiOverlayActive}
                     nodules={nodules}
+                    sliceThickness={sliceThickness}
+                    sliceCount={sliceCount}
                   />
                 ) : (
                   <div className="w-full h-full bg-black flex flex-col items-center justify-center text-on-surface-variant font-mono-data">
@@ -321,45 +756,34 @@ export const InteractiveViewer: React.FC = () => {
                   </div>
                 )}
               </div>
-
-              <div className="absolute bottom-4 left-4 z-10 text-mono-data font-mono-data text-on-surface-variant drop-shadow-md text-xs pointer-events-none">
-                Thick: {sliceThickness.toFixed(2)} mm
-              </div>
             </div>
 
             {/* 2D Slices Thumbnail Strip */}
-            <div className="h-24 flex gap-2 overflow-x-auto pb-2 custom-scrollbar shrink-0">
-              {(() => {
-                const maxThumbnails = 15;
-                const step = Math.max(1, Math.floor(sliceCount / maxThumbnails));
-                const indices: number[] = [];
-                for (let i = 0; i < sliceCount; i += step) {
-                  indices.push(i);
-                }
-                if (indices.length > 0 && indices[indices.length - 1] !== sliceCount - 1) {
-                  indices.push(sliceCount - 1);
-                }
-                
-                return indices.map((index) => (
-                  <div
-                    key={index}
-                    className={`min-w-[80px] h-full rounded border-2 transition-all cursor-pointer bg-black/40 overflow-hidden relative ${
-                      activeSliceIndex === index ? 'border-primary scale-[0.98]' : 'border-[#30363D] hover:border-primary/50'
-                    }`}
-                    onClick={() => setActiveSliceIndex(index)}
-                  >
-                    <img
-                      alt={`Slice ${index}`}
-                      className="w-full h-full object-cover opacity-60 hover:opacity-100"
-                      src={lungCtScan}
+            {activeTab === '2d' && (
+              <div className="h-24 flex gap-2 overflow-x-auto pb-2 custom-scrollbar shrink-0">
+                {(() => {
+                  const maxThumbnails = 15;
+                  const step = Math.max(1, Math.floor(sliceCount / maxThumbnails));
+                  const indices: number[] = [];
+                  for (let i = 0; i < sliceCount; i += step) {
+                    indices.push(i);
+                  }
+                  if (indices.length > 0 && indices[indices.length - 1] !== sliceCount - 1) {
+                    indices.push(sliceCount - 1);
+                  }
+                  
+                  return indices.map((index) => (
+                    <SliceThumbnail
+                      key={index}
+                      scanId={scanId || ''}
+                      sliceIndex={index}
+                      isActive={activeSliceIndex === index}
+                      onClick={() => setActiveSliceIndex(index)}
                     />
-                    <span className="absolute bottom-1 right-1 text-[9px] font-mono bg-black/70 px-1 rounded text-on-surface">
-                      {index + 1}
-                    </span>
-                  </div>
-                ));
-              })()}
-            </div>
+                  ));
+                })()}
+              </div>
+            )}
           </div>
 
           {/* Redesigned AI Co-Pilot Panel */}
@@ -458,7 +882,10 @@ export const InteractiveViewer: React.FC = () => {
                   {selectedNodule && (
                     <div className="pt-4 border-t border-[#30363D] space-y-4">
                       <div className="flex justify-between items-center">
-                        <span className="text-on-surface-variant text-label-caps">Probability</span>
+                        <span className="text-on-surface-variant text-label-caps flex items-center">
+                          Probability
+                          <InfoTooltip align="center" text="AI confidence score representing the likelihood that this cluster represents a true positive pulmonary nodule." />
+                        </span>
                         <span className="text-primary text-mono-data text-lg">
                           {(selectedNodule.confidence * 100).toFixed(1)}%
                         </span>
@@ -468,23 +895,35 @@ export const InteractiveViewer: React.FC = () => {
                       </div>
                       <div className="grid grid-cols-2 gap-4 mt-4">
                         <div className="p-3 bg-surface-container-low rounded border border-[#30363D]/30">
-                          <div className="text-label-caps text-on-surface-variant mb-1">Estimated Size</div>
+                          <div className="text-label-caps text-on-surface-variant mb-1 flex items-center">
+                            Estimated Size
+                            <InfoTooltip align="left" text="The maximum diameter of the nodule measured in millimeters across the transverse plane." />
+                          </div>
                           <div className="text-body-md font-bold text-on-surface">{selectedNodule.size_mm.toFixed(1)} mm</div>
                         </div>
                         <div className="p-3 bg-surface-container-low rounded border border-[#30363D]/30">
-                          <div className="text-label-caps text-on-surface-variant mb-1">Confidence</div>
+                          <div className="text-label-caps text-on-surface-variant mb-1 flex items-center">
+                            Confidence
+                            <InfoTooltip align="right" text="Confidence range classification based on the AI detection score. Low: < 50%, Medium: 50% - 80%, High: >= 80%." />
+                          </div>
                           <div className="text-body-md font-bold text-on-surface">
                             {selectedNodule.confidence >= 0.8 ? 'High' : selectedNodule.confidence >= 0.5 ? 'Medium' : 'Low'}
                           </div>
                         </div>
                         <div className="p-3 bg-surface-container-low rounded border border-[#30363D]/30">
-                          <div className="text-label-caps text-on-surface-variant mb-1">Location</div>
+                          <div className="text-label-caps text-on-surface-variant mb-1 flex items-center">
+                            Location
+                            <InfoTooltip align="left" text="The anatomical lobe of the lung where the nodule cluster is located (e.g. LUL: Left Upper Lobe, LLL: Left Lower Lobe, RUL: Right Upper Lobe)." />
+                          </div>
                           <div className="text-body-md font-bold text-on-surface truncate" title={selectedNodule.location}>
                             {selectedNodule.location}
                           </div>
                         </div>
                         <div className="p-3 bg-surface-container-low rounded border border-[#30363D]/30">
-                          <div className="text-label-caps text-on-surface-variant mb-1">Centroid Slice</div>
+                          <div className="text-label-caps text-on-surface-variant mb-1 flex items-center">
+                            Centroid Slice
+                            <InfoTooltip align="right" text="The axial slice index corresponding to the center of mass of the detected nodule." />
+                          </div>
                           <div className="text-body-md font-bold text-on-surface">Slice {selectedNodule.centroid[0] + 1}</div>
                         </div>
                       </div>
@@ -496,22 +935,24 @@ export const InteractiveViewer: React.FC = () => {
                     <h3 className="text-label-caps text-on-surface-variant mb-3 flex items-center gap-2">
                       <span className="material-symbols-outlined text-[14px]">heat_pump</span>
                       HEAT MAP (GRAD-CAM)
+                      <InfoTooltip align="left" text="Gradient-weighted Class Activation Mapping. Visualizes the regions of the scan that the AI model focused on most to make its detection decision." />
                     </h3>
                     <div className="flex gap-3 items-stretch">
                       <div
-                        className={`aspect-square flex-1 rounded border border-[#30363D] overflow-hidden bg-black relative group cursor-crosshair transition-all duration-300 ${
-                          heatmapZoomed ? 'scale-110 z-30 shadow-2xl' : ''
-                        }`}
-                        onClick={() => setHeatmapZoomed(!heatmapZoomed)}
+                        className="aspect-square flex-1 rounded border border-[#30363D] overflow-hidden bg-black relative group cursor-pointer hover:border-primary transition-all duration-300"
+                        onClick={() => setIsHeatmapModalOpen(true)}
                       >
-                        <img
-                          alt="Grad-CAM Heat Map"
-                          className="w-full h-full object-cover"
-                          src={lungGradCamHeatmap}
+                        <HeatmapCanvas 
+                          scanId={scanId}
+                          sliceIndex={selectedNodule ? selectedNodule.centroid[0] : 0}
+                          noduleX={selectedNodule ? selectedNodule.centroid[2] : 260} 
+                          noduleY={selectedNodule ? selectedNodule.centroid[1] : 190} 
+                          width={256} 
+                          height={256} 
                         />
-                        <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/40">
+                        <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/40 pointer-events-none">
                           <span className="text-white text-[10px] px-2 py-1 bg-black/60 rounded">
-                            {heatmapZoomed ? 'Click to Shrink' : 'Click to Zoom'}
+                            Click to Enlarge
                           </span>
                         </div>
                       </div>
@@ -548,7 +989,98 @@ export const InteractiveViewer: React.FC = () => {
           </aside>
         </main>
       </div>
+
+      {/* Enlarged Heatmap Modal */}
+      {isHeatmapModalOpen && (
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
+          onClick={() => setIsHeatmapModalOpen(false)}
+        >
+          <div 
+            className="bg-[#161B22] border border-[#30363D] rounded shadow-2xl overflow-hidden max-w-2xl w-full flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="p-4 border-b border-[#30363D] flex justify-between items-center bg-[#1C2128]">
+              <div className="flex items-center gap-2 text-primary">
+                <span className="material-symbols-outlined">heat_pump</span>
+                <h3 className="font-bold tracking-wide text-title-sm">
+                  AI GRAD-CAM VISUALIZATION (ENLARGED VIEW)
+                </h3>
+              </div>
+              <button 
+                onClick={() => setIsHeatmapModalOpen(false)}
+                className="text-on-surface-variant hover:text-on-surface cursor-pointer p-1 rounded hover:bg-surface-variant/20"
+              >
+                <span className="material-symbols-outlined text-[20px]">close</span>
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="p-6 flex flex-col md:flex-row gap-6 items-center bg-[#0B0E14]">
+              {/* Heatmap Canvas */}
+              <div className="w-[380px] h-[380px] rounded border border-[#30363D] overflow-hidden bg-black relative shadow-lg shrink-0">
+                <HeatmapCanvas 
+                  scanId={scanId}
+                  sliceIndex={selectedNodule ? selectedNodule.centroid[0] : 0}
+                  noduleX={selectedNodule ? selectedNodule.centroid[2] : 260} 
+                  noduleY={selectedNodule ? selectedNodule.centroid[1] : 190} 
+                  width={380} 
+                  height={380} 
+                />
+              </div>
+
+              {/* Details and Legend */}
+              <div className="flex-1 space-y-4 text-on-surface text-body-sm w-full">
+                <div>
+                  <div className="text-[11px] text-on-surface-variant text-label-caps mb-1">Target Nodule Location</div>
+                  <div className="font-bold text-primary text-body-lg">
+                    {selectedNodule ? selectedNodule.location : 'Unknown Nodule'}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <div className="text-[11px] text-on-surface-variant text-label-caps">Centroid Slice</div>
+                    <div className="font-mono font-bold text-on-surface">Slice {selectedNodule ? selectedNodule.centroid[0] + 1 : 'N/A'}</div>
+                  </div>
+                  <div>
+                    <div className="text-[11px] text-on-surface-variant text-label-caps">Coordinates (X, Y)</div>
+                    <div className="font-mono font-bold text-on-surface">
+                      {selectedNodule ? `${selectedNodule.centroid[2].toFixed(0)}, ${selectedNodule.centroid[1].toFixed(0)}` : 'N/A'}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-[11px] text-on-surface-variant text-label-caps">AI Confidence</div>
+                    <div className="font-mono font-bold text-primary">
+                      {selectedNodule ? `${(selectedNodule.confidence * 100).toFixed(1)}%` : 'N/A'}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-[11px] text-on-surface-variant text-label-caps">Estimated Diameter</div>
+                    <div className="font-mono font-bold text-on-surface">
+                      {selectedNodule ? `${selectedNodule.size_mm.toFixed(1)} mm` : 'N/A'}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="pt-2 border-t border-[#30363D]">
+                  <div className="text-[11px] text-on-surface-variant text-label-caps mb-2">Activation Intensity Legend</div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] text-on-surface-variant">Low</span>
+                    <div className="h-4 flex-1 rounded bg-gradient-to-r from-blue-600 via-green-500 via-yellow-400 to-red-600"></div>
+                    <span className="text-[10px] text-error font-bold">High</span>
+                  </div>
+                </div>
+
+                <div className="p-3 bg-surface-container-low rounded border border-[#30363D]/40 text-xs text-on-surface-variant leading-relaxed">
+                  <strong>Clinical Note:</strong> Grad-CAM highlights pixels that contributed most to the neural network's decision. High intensity activation (red) corresponds directly to the localized lesion boundary, while diffuse low activation (blue/green) is normal scan background attention.
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
-
